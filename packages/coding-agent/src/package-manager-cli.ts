@@ -24,6 +24,7 @@ import {
 	getPackageDir,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
+	IS_OFFICIAL_DISTRIBUTION,
 	makeConfiguredSelfUpdateCommand,
 	PACKAGE_NAME,
 	type SelfUpdateCommand,
@@ -1132,6 +1133,16 @@ export async function handlePackageCommand(
 					}
 				}
 				if (updateTargetIncludesSelf(target)) {
+					// Temporary: self-update stays off until Axiom has its own release build. Re-enable steps: docs/axiom/rebrand.md section 7.
+					if (!IS_OFFICIAL_DISTRIBUTION) {
+						console.error(
+							chalk.red(
+								`Error: Self-update is disabled in this ${APP_NAME} build until it has its own release build.`,
+							),
+						);
+						process.exitCode = 1;
+						return true;
+					}
 					const configuredSelfUpdateArgv = getConfiguredSelfUpdateArgv(
 						settingsManager.getGlobalSettings().selfUpdateCommand,
 					);

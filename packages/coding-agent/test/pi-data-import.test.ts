@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	chmodSync,
@@ -417,6 +417,20 @@ describe("runPiDataImport", () => {
 
 		expect(existsSync(old)).toBe(false);
 		expect(existsSync(young)).toBe(true);
+	});
+
+	it("removes temp dirs of a dead importer at once and keeps one whose importer is alive", () => {
+		writePiDir(legacy);
+		const dead = spawnSync(process.execPath, ["-e", ""]).pid;
+		const orphan = join(home, ".axiom", `.agent-import-${dead}-orphan`);
+		const live = join(home, ".axiom", `.agent-import-${process.pid}-live`);
+		mkdirSync(orphan, { recursive: true });
+		mkdirSync(live, { recursive: true });
+
+		runPiDataImport([], {});
+
+		expect(existsSync(orphan)).toBe(false);
+		expect(existsSync(live)).toBe(true);
 	});
 });
 

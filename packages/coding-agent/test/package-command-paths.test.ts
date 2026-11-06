@@ -726,19 +726,23 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		}
 	});
 
-	it("never self-updates a forked distribution from pi.dev", async () => {
+	it("disables self-update in a forked distribution without querying pi.dev or running a configured command", async () => {
 		dist.official = false;
 		const fetchMock = vi.fn(async () => Response.json({ packageName: PACKAGE_NAME, version: "999.0.0" }));
 		vi.stubGlobal("fetch", fetchMock);
-		vi.stubEnv("PI_SELF_UPDATE_COMMAND", "pi-wrapper upgrade");
-		const { recordPath } = prepareSelfUpdateCommand("999.0.0");
+		const { scriptPath, recordPath } = prepareSelfUpdateCommand("999.0.0");
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ selfUpdateCommand: [originalExecPath, scriptPath, "{packageName}"] }),
+		);
 		vi.spyOn(console, "log").mockImplementation(() => {});
-		vi.spyOn(console, "error").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		await expect(runPackageCommandDirectly(["update"])).resolves.toBeUndefined();
+		await expect(runPackageCommandDirectly(["update", "--self"])).resolves.toBeUndefined();
 
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(existsSync(recordPath)).toBe(false);
+		expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Self-update is disabled"));
 		expect(process.exitCode).toBe(1);
 	});
 

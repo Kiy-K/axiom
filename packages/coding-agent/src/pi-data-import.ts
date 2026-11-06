@@ -98,7 +98,7 @@ function overlaps(a: string, b: string): boolean {
 const TEMP_PREFIX = ".agent-import-";
 const STALE_TEMP_MS = 60 * 60 * 1000;
 
-/** Remove temp trees left by interrupted imports; young ones may belong to a running import. */
+/** Remove temp trees whose importer process is gone; live ones and young ones may belong to a running import. */
 function removeStaleTemps(parent: string): void {
 	let names: string[];
 	try {
@@ -110,7 +110,19 @@ function removeStaleTemps(parent: string): void {
 		if (!name.startsWith(TEMP_PREFIX)) continue;
 		const path = join(parent, name);
 		const stats = lstatOrUndefined(path);
-		if (stats?.isDirectory() && Date.now() - stats.mtimeMs > STALE_TEMP_MS) removeTree(path);
+		if (!stats?.isDirectory()) continue;
+		const importerPid = Number(name.slice(TEMP_PREFIX.length).split("-")[0]);
+		if (importerIsGone(importerPid) || Date.now() - stats.mtimeMs > STALE_TEMP_MS) removeTree(path);
+	}
+}
+
+/** True only when the pid is definitely gone; EPERM means the process exists under another user. */
+function importerIsGone(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch (error) {
+		return error instanceof Error && "code" in error && error.code === "ESRCH";
 	}
 }
 
@@ -146,7 +158,7 @@ export function importPiAgentDir(source: string, target: string): PiDataImportRe
 	let temp: string | undefined;
 	try {
 		mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-		temp = mkdtempSync(join(dirname(target), TEMP_PREFIX));
+		temp = mkdtempSync(join(dirname(target), `${TEMP_PREFIX}${process.pid}-`));
 		const state: WalkState = { root: source, dstRoot: temp, files: 0, skipped: [], droppedOAuth: [] };
 		copyChildren(source, temp, "", readdirSync(source), state);
 		applyMetadata(temp, statSync(source));
@@ -324,7 +336,7 @@ function parseObject(text: string): Record<string, unknown> | undefined {
 
 function applyMetadata(path: string, stats: Stats): void {
 	chmodSync(path, stats.mode & 0o7777);
-	// Seconds as numbers keep sub-millisecond precision that Date objects would round away.
+	// Node's utimes takes seconds as a double, about 240 ns resolution at current epochs, so an mtime can differ from the source by up to ~120 ns. Node has no nanosecond utimes.
 	utimesSync(path, stats.atimeMs / 1000, stats.mtimeMs / 1000);
 }
 

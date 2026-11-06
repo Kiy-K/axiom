@@ -160,7 +160,24 @@ CHANGELOG (`packages/coding-agent/CHANGELOG.md`, `## [Unreleased]` → `### Brea
 - Renaming npm packages or scope, import paths, `pkg.pi`, the `pi` API variable, `PI_*` vars, identity headers or UA, pi.dev hosts, temp prefixes, workflow secrets or publish steps, `issue-analysis.yml`, `pi-test.sh`/`.ps1`/`.bat`, `scripts/auto-pi.sh`.
 - Any `axiom import`/`migrate` command; syncing back to Pi; rewriting paths inside copied files; disk-space pre-checks (`shortcut:` comment in the walk); a cross-process import lock.
 - The repo's own `.pi/` (known stale after D2: `.pi/skills/release.md:16-31`); `examples/extensions/subagent/index.ts:309` (spawns `pi`); apps/p2, durable, env, chord (`apps/p2/src/hosts/tui-local-preferences.ts:40` keeps `PI_CODING_AGENT_DIR`).
-- Logo and assets, easter eggs, Radius copy, system prompt text, `docs/**`, released CHANGELOG sections, `legalComments`, third-party notice bundling, npm publishing, and an Axiom copyright line.
+- Logo and assets, easter eggs, Radius copy, system prompt text, `docs/**`, released CHANGELOG sections, `legalComments`, third-party notice bundling, npm publishing.
+
+## 7. Self-update: disabled until Axiom has a release build
+
+**Current state.** In non-official builds (`IS_OFFICIAL_DISTRIBUTION` false), `axiom update` and `axiom update --self` print `Self-update is disabled ...` and exit 1 before any fetch or spawn. `PI_SELF_UPDATE_COMMAND` and `selfUpdateCommand` are disabled with them. The help omits the `update` usage line, the `update` entry in the `<command> --help` list, and `PI_SELF_UPDATE_COMMAND`. `axiom update --extensions` and `--models` still run. `--all` runs the extension update first, then exits 1 for self.
+
+**Why.** Self-update installs upstream Pi (`@earendil-works/pi-coding-agent` from pi.dev's release feed). Axiom has no release feed of its own, so enabling it would replace Axiom with Pi. Review row 25 records the decision; D8 describes the earlier guard.
+
+**Re-enable (after Axiom publishes its own release build):**
+1. Decide the feed: where Axiom's latest version is published, and the package name it installs. Keep `PACKAGE_NAME` and `APP_NAME` consistent with it.
+2. `packages/coding-agent/src/utils/version-check.ts`: `getLatestPiRelease` returns `undefined` for `!IS_OFFICIAL_DISTRIBUTION`. Point it at Axiom's feed for non-official builds. Leave pi.dev out of Axiom builds.
+3. `packages/coding-agent/src/package-manager-cli.ts`: delete the `if (!IS_OFFICIAL_DISTRIBUTION)` block that prints `Self-update is disabled` (search for that string), and the pointer comment above it.
+4. `packages/coding-agent/src/cli/args.ts`: restore the `update [source|self|pi]` usage line, the `update` entry in the `<command> --help` list, and the `PI_SELF_UPDATE_COMMAND` env line.
+5. `packages/coding-agent/test/package-command-paths.test.ts`: replace the test named "disables self-update in a forked distribution..." with positive tests against Axiom's feed. The official self-update tests in the same file show the pattern.
+6. `packages/coding-agent/CHANGELOG.md` `[Unreleased]` Breaking Changes, the rebrand bullet: remove the self-update clause. `README.md` (the "Axiom does not check pi.dev for updates ... self-update" line) and the `upstream.md` "Kept as is" table: update the self-update wording.
+7. Verify: `bun run check`, `./test.sh`, and `axiom update --self` against a real Axiom release from a clean HOME. Confirm it installs the new version and that `axiom --version` reports it.
+
+Do not re-enable by reverting the disable commit alone. It would pull in the pre-release code paths without a feed.
 
 ## Review log (`/tmp/goldfish-contract-review.md`)
 
@@ -190,3 +207,6 @@ CHANGELOG (`packages/coding-agent/CHANGELOG.md`, `## [Unreleased]` → `### Brea
 | 22 | Accepted. No new check; `cmp` is in the `upstream.md` sync checklist (D12). |
 | 23 | Accepted as known stale (§6). |
 | 24 | Bun amendment (director, Bun is the project runtime). §5 rollback now uses `bun install --ignore-scripts && bun run build`. D13 install text and the §4 "Run:" line (`npm run check`, `npm run test:mcp-conformance`, `node --test`, `npm pack`) still show npm/node; read those as `bun run check` (verified under Bun) and the Bun equivalents. The repo's own `package.json` scripts, `test.sh` and `pi-test.sh` still call `node`/`npm` internally; that is a separate, unapproved change. |
+| 25 | Director decision: self-update is disabled in Axiom builds until Axiom has its own release build. One guard at the top of the self branch in `package-manager-cli.ts` (`!IS_OFFICIAL_DISTRIBUTION`): `update` and `update --self` print `Self-update is disabled ...` and exit 1 before any fetch or spawn. `PI_SELF_UPDATE_COMMAND` and `selfUpdateCommand` are disabled with it. `--all` runs the extension update first, then exits 1 for self. This supersedes D8's `getSelfUpdatePlan` throw. The option to run a configured command with `{packageName}` only was built, tested, and reverted. Known wording gap: `CHANGELOG.md` line 8 says `axiom update` without `--extensions` exits 1, which is also true of `--models`; not fixed because the edit tool could not display that 844-byte line. |
+| 26 | Minors from Goldfish fixed or accepted. (a) Orphan temp: temp trees are named `.agent-import-<pid>-XXXXXX`. The next start removes a tree whose pid no longer exists, without waiting for the one-hour age limit (`removeStaleTemps`, `importerIsGone`). Test: "removes temp dirs of a dead importer at once and keeps one whose importer is alive". (b) mtime drift: accepted, not fixable in Node. `fs.utimes` takes seconds as a double, about 240 ns resolution at current epochs, so copied mtimes can differ by up to ~120 ns (comment at `applyMetadata`). (c) `--help` no longer lists `update` or `PI_SELF_UPDATE_COMMAND` while self-update is disabled. The `update` subcommand's own help is unchanged. |
+| 27 | License: `Copyright (c) 2026 Khoi Truong` added under the Mario Zechner notice in `LICENSE` and `packages/coding-agent/LICENSE`. |
