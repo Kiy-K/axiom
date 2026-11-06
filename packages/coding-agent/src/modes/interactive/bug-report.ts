@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import type { Container, EditorComponent, TUI } from "@earendil-works/pi-tui";
 import { getAuthCredential } from "../../cli/auth-command.ts";
+import { APP_NAME, IS_OFFICIAL_DISTRIBUTION } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import {
 	BUG_REPORT_CUSTOM_ENTRY_TYPE,
@@ -41,8 +42,10 @@ interface BugReportOptions {
 
 type Overlay = Container & { dispose?: () => void };
 
-const DISCLAIMER =
-	"This report goes to the Pi developers (Earendil) and is not shared publicly. It includes your pi version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session.";
+// Forks never upload to the Pi developers; reports stay local as a zip.
+const DISCLAIMER = IS_OFFICIAL_DISTRIBUTION
+	? "This report goes to the Pi developers (Earendil) and is not shared publicly. It includes your pi version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session."
+	: `This report stays on your machine as a zip. Attach it to an issue at https://github.com/Kiy-K/axiom/issues. It includes your ${APP_NAME} version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session.`;
 const TRANSCRIPT_NOTE =
 	"The transcript contains your messages, model output, tool calls and their results, including file contents and command output read during this session.";
 
@@ -134,8 +137,8 @@ async function promptForOptions(
 	const delivery = await choose(
 		context,
 		"Bug report",
-		["Upload Report", "Export as Zip", "Cancel"],
-		`Description: ${description || "none"}\nTranscript: ${includeSession ? "included" : "not included"}\nSummary: ${includeSummary ? `written by ${context.session.model?.name ?? "the current model"}` : "none"}\n\nUpload sends the report to ${new URL(getRadiusGatewayUrl()).host}. Export writes a zip archive to the current directory instead.`,
+		IS_OFFICIAL_DISTRIBUTION ? ["Upload Report", "Export as Zip", "Cancel"] : ["Export as Zip", "Cancel"],
+		`Description: ${description || "none"}\nTranscript: ${includeSession ? "included" : "not included"}\nSummary: ${includeSummary ? `written by ${context.session.model?.name ?? "the current model"}` : "none"}\n\n${IS_OFFICIAL_DISTRIBUTION ? `Upload sends the report to ${new URL(getRadiusGatewayUrl()).host}. Export writes a zip archive to the current directory instead.` : "Export writes a zip archive to the current directory."}`,
 	);
 	if (!delivery || delivery === "Cancel") return undefined;
 	return {

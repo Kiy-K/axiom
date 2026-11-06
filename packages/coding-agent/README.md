@@ -1,59 +1,26 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="Pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square&logo=npm&logoColor=white" /></a>
-</p>
+# Axiom coding agent
 
-> New issues and PRs from new contributors are closed automatically. Maintainers review closed submissions daily. See [CONTRIBUTING.md](https://github.com/earendil-works/pi/blob/main/CONTRIBUTING.md).
+> Docs under docs/ say `pi`, `~/.pi/agent`, `.pi/`; in Axiom read `axiom`, `~/.axiom/agent`, `.axiom/`. `PI_*` env vars and the `pi` extension API are unchanged.
 
-# Pi
-
-Pi is a minimal, extensible agent harness that you can make your own.
-
-Adapt Pi to your workflows, not the other way around. Customize Pi with [extensions](docs/extensions.md), [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), and [themes](docs/themes.md). Bundle them as [Pi packages](docs/packages.md) and share via npm or git.
-
-Pi ships with powerful defaults but skips features like sub-agents and plan mode. Ask Pi to build what you want, or install a package that does it your way.
-
-Use Pi [interactively](docs/usage.md), automate it in [print or JSON mode](docs/cli.md), control it over [RPC](docs/rpc.md), or build apps with the [Pi TypeScript SDK](docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
+Axiom is a fork of [Pi](https://github.com/earendil-works/pi) (MIT; see [LICENSE](LICENSE)), a minimal, extensible agent harness. Customize it with [extensions](docs/extensions.md), [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), and [themes](docs/themes.md). Use it [interactively](docs/usage.md), in [print or JSON mode](docs/cli.md), over [RPC](docs/rpc.md), or through the [TypeScript SDK](docs/sdk.md). Report issues at https://github.com/Kiy-K/axiom/issues.
 
 ## Getting started
 
-Install the command-line interface:
+Install from source with [Bun](https://bun.sh) (tested with 1.4.4; Node.js 22.19 or newer must also be on `PATH` because the build scripts call `node`):
 
 ```bash
-curl -fsSL https://pi.dev/install.sh | sh
+git clone https://github.com/Kiy-K/axiom
+cd axiom
+bun install --ignore-scripts
+bun run build
+alias axiom="bun $PWD/packages/coding-agent/dist/bundle/cli.js"
 ```
 
-On Windows:
+Start Axiom in the directory where you want it to work, then run `/login` to connect a subscription or API key.
 
-```shell
-powershell -c "irm https://pi.dev/install.ps1 | iex"
-```
+## Coming from Pi
 
-The installer pins all dependencies and updates Pi with `pi update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-Pi requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Pi does not require dependency lifecycle scripts for a normal npm installation.
-
-On macOS and Linux, Nix users can install the latest release with `nix profile add github:earendil-works/pi/stable`. See the [quickstart](docs/quickstart.md#1-install-pi) for updating and pinning releases.
-
-Start Pi in the directory where you want it to work:
-
-```bash
-cd /path/to/project
-pi
-```
-
-For a built-in AI provider, run `/login` inside Pi to connect a subscription or API key. Then give Pi a task.
-
-See the [documentation](docs/index.md) for full setup and usage instructions.
+On its first start Axiom copies `~/.pi/agent` into `~/.axiom/agent` and never changes the Pi directory. OAuth logins are not imported (run `axiom auth login <provider>`; API keys are imported), trusted projects are asked again, and MCP sign-ins and crash records are left behind. The import is skipped when `AXIOM_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR` is set. Project `.pi/` directories are not read; rename them to `.axiom/`.
 
 ## Share your OSS coding agent sessions
 
@@ -75,7 +42,7 @@ Clone the repository, install its dependencies, and run Pi from source:
 ```bash
 git clone https://github.com/earendil-works/pi
 cd pi
-npm install --ignore-scripts
+bun install --ignore-scripts
 ./pi-test.sh
 ```
 
@@ -84,7 +51,7 @@ npm install --ignore-scripts
 Before submitting changes, run:
 
 ```bash
-npm run check
+bun run check
 ./test.sh
 ```
 

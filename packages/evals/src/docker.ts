@@ -66,7 +66,9 @@ function environment(name: string, value: string): string[] {
 
 export function requireEvalAuthFile(provider: string): string {
 	const path = join(
-		process.env.PI_CODING_AGENT_DIR ? resolve(process.env.PI_CODING_AGENT_DIR) : join(homedir(), ".pi", "agent"),
+		process.env.AXIOM_CODING_AGENT_DIR
+			? resolve(process.env.AXIOM_CODING_AGENT_DIR)
+			: join(homedir(), ".axiom", "agent"),
 		"auth.json",
 	);
 	if (!existsSync(path) || !statSync(path).isFile())

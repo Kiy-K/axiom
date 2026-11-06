@@ -1,73 +1,41 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# Axiom
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Axiom is a fork of [Pi](https://github.com/earendil-works/pi), a minimal, extensible agent harness. It keeps Pi's MIT license and copyright notice (see [LICENSE](LICENSE)). Report Axiom issues at https://github.com/Kiy-K/axiom/issues.
 
-# Pi
+Customize Axiom with [extensions](packages/coding-agent/docs/extensions.md), [skills](packages/coding-agent/docs/skills.md), [prompt templates](packages/coding-agent/docs/prompt-templates.md), and [themes](packages/coding-agent/docs/themes.md), and bundle them as [packages](packages/coding-agent/docs/packages.md). Use it [interactively](packages/coding-agent/docs/usage.md), in [print or JSON mode](packages/coding-agent/docs/cli.md), over [RPC](packages/coding-agent/docs/rpc.md), or through the [TypeScript SDK](packages/coding-agent/docs/sdk.md).
 
-Pi is a minimal, extensible agent harness that you can make your own.
-
-Adapt Pi to your workflows, not the other way around. Customize Pi with [extensions](packages/coding-agent/docs/extensions.md), [skills](packages/coding-agent/docs/skills.md), [prompt templates](packages/coding-agent/docs/prompt-templates.md), and [themes](packages/coding-agent/docs/themes.md). Bundle them as [Pi packages](packages/coding-agent/docs/packages.md) and share via npm or git.
-
-Pi ships with powerful defaults but skips features like sub-agents and plan mode. Ask Pi to build what you want, or install a package that does it your way.
-
-Use Pi [interactively](packages/coding-agent/docs/usage.md), automate it in [print or JSON mode](packages/coding-agent/docs/cli.md), control it over [RPC](packages/coding-agent/docs/rpc.md), or build apps with the [Pi TypeScript SDK](packages/coding-agent/docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
+The docs under `packages/coding-agent/docs/` still say `pi`, `~/.pi/agent`, and `.pi/`. In Axiom read them as `axiom`, `~/.axiom/agent`, and `.axiom/`. The `PI_*` environment variables (except the agent and session dir) and the `pi` extension API are unchanged.
 
 ## Getting started
 
-Install the command-line interface:
+Axiom has no release archives or npm package yet; install it from source. It runs on [Bun](https://bun.sh) (tested with 1.4.4). The repository's build and check scripts still call `node` internally, so Node.js 22.19 or newer must also be on `PATH` to build.
 
 ```bash
-curl -fsSL https://pi.dev/install.sh | sh
+git clone https://github.com/Kiy-K/axiom
+cd axiom
+bun install --ignore-scripts
+bun run build
+alias axiom="bun $PWD/packages/coding-agent/dist/bundle/cli.js"
 ```
 
-On Windows:
-
-```shell
-powershell -c "irm https://pi.dev/install.ps1 | iex"
-```
-
-The installer pins all dependencies and updates Pi with `pi update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-Pi requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Pi does not require dependency lifecycle scripts for a normal npm installation.
-
-Start Pi in the directory where you want it to work:
+Start Axiom in the directory where you want it to work, then run `/login` to connect a subscription or API key:
 
 ```bash
 cd /path/to/project
-pi
+axiom
 ```
 
-For a built-in AI provider, run `/login` inside Pi to connect a subscription or API key. Then give Pi a task.
+With Nix, `nix build .` or `nix run .` builds or runs your checkout (`bin/axiom`).
 
-See the [documentation](https://pi.dev/docs/latest) for full setup and usage instructions, or [visit pi.dev](https://pi.dev) for demos.
+## Coming from Pi
 
-## Run with Nix
+Axiom keeps its data in `~/.axiom/agent` (override with `AXIOM_CODING_AGENT_DIR`) and reads project settings from `.axiom/`. On its first start, Axiom copies `~/.pi/agent` into `~/.axiom/agent` and never changes the Pi directory. Not imported:
 
-```bash
-nix run github:earendil-works/pi/stable
-```
+- OAuth logins (subscriptions), so Pi and Axiom never share a refresh token; run `axiom auth login <provider>`. API keys are imported.
+- Trusted projects; Axiom asks again. Explicit "do not trust" decisions are kept.
+- MCP sign-ins and crash records.
 
-`stable` points at the latest release. Install it with `nix profile add github:earendil-works/pi/stable` and update with `nix profile upgrade pi`. Use a release tag such as `github:earendil-works/pi/v1.0.0` to pin a version, or `github:earendil-works/pi` for unreleased changes on `main`. Nix builds Pi from source.
-
-Supports ARM64 and x86-64 on Linux and macOS. Use `nix build .` or `nix run .` to build or run your checkout.
-
-Nix builds are offline, so the bundled model data comes from a pi.dev model catalog revision pinned in `nix/model-catalog.json`. At runtime, Pi still overlays newer catalog data from pi.dev as usual. The Nix workflow replaces the pin on `main` when it no longer matches the checkout, for example after a provider is added or gains a new model type. To refresh it by hand:
-
-```bash
-npm run update:model-catalog-pin
-```
+The import is skipped when `AXIOM_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR` is set; copy the directory yourself in that case. Project `.pi/` directories are not read; rename them to `.axiom/`. Axiom does not check pi.dev for updates, send install telemetry, self-update, or upload `/bug` reports.
 
 ## Packages
 
@@ -102,10 +70,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.m
 ## Development
 
 ```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
+bun install --ignore-scripts  # Install all dependencies without running lifecycle scripts
+bun run build         # Refresh model data, then build all packages
+bun run build:offline # Rebuild using existing model data without network access
+bun run check         # Lint, format, and type check
 ./test.sh            # Run tests (skips LLM-dependent tests without API keys)
 ./pi-test.sh         # Run pi from sources (can be run from any directory)
 ```
@@ -115,7 +83,7 @@ npm run check         # Lint, format, and type check
 Build every public package into one coherent local artifact set:
 
 ```bash
-npm run pack:packages -- --out .artifacts/pi-packages
+bun run pack:packages -- --out .artifacts/pi-packages
 ```
 
 This refreshes model data before building `pi-ai`. To avoid network access when
@@ -125,7 +93,7 @@ Then configure an external project to consume one package and resolve all of
 its Pi dependencies from the same artifact set. npm is the default:
 
 ```bash
-node scripts/use-local-packages.mjs \
+bun scripts/use-local-packages.mjs \
   --manifest .artifacts/pi-packages/manifest.json \
   --consumer ../my-project \
   --package @earendil-works/pi-durable \
@@ -137,7 +105,7 @@ npm install --ignore-scripts
 For a pnpm project, point `--consumer` at the workspace root:
 
 ```bash
-node scripts/use-local-packages.mjs \
+bun scripts/use-local-packages.mjs \
   --manifest .artifacts/pi-packages/manifest.json \
   --consumer ../my-project \
   --package @earendil-works/pi-agent-core \
@@ -172,7 +140,7 @@ We treat npm dependency changes as reviewed code changes.
 - Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
 - `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
 - `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
+- `bun run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
 - The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
 - Local release smoke tests and npm publication use the same tarball packer; npm publishes the validated tarballs rather than repacking workspace directories.
 - Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.

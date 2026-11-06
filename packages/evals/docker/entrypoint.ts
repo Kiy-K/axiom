@@ -112,7 +112,7 @@ chownTree(agentDir, sandboxUid, sandboxGid);
 chownTree("/artifacts", sandboxUid, sandboxGid);
 process.env.HOME = "/tmp/pi-eval-bootstrap";
 process.env.USERPROFILE = process.env.HOME;
-process.env.PI_CODING_AGENT_DIR = agentDir;
+process.env.AXIOM_CODING_AGENT_DIR = agentDir;
 process.env.PI_EVAL_CONTAINER = "1";
 process.umask(0o022);
 

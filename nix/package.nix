@@ -92,7 +92,7 @@ let
   };
 in
 stdenv.mkDerivation {
-  pname = "pi";
+  pname = "axiom";
   inherit (packageJson) version;
   src = installLock;
   inherit npmDeps;
@@ -117,15 +117,15 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p "$out/lib/pi" "$out/bin"
-    cp -R . "$out/lib/pi"
+    mkdir -p "$out/lib/axiom" "$out/bin"
+    cp -R . "$out/lib/axiom"
 
     # The wrapper runs Pi with an absolute Node path. Node is only on PATH so Pi can
     # find npm for package installs; append it so that shells started by the
     # bash tool keep the user's node/npm (e.g. from mise or nvm). fd, ripgrep,
     # and the clipboard tools are Pi's own dependencies and take precedence.
-    makeWrapper ${nodejs}/bin/node "$out/bin/pi" \
-      --add-flags "$out/lib/pi/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" \
+    makeWrapper ${nodejs}/bin/node "$out/bin/axiom" \
+      --add-flags "$out/lib/axiom/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" \
       --suffix PATH : ${lib.makeBinPath [ nodejs ]} \
       --prefix PATH : ${
         lib.makeBinPath (
@@ -146,20 +146,20 @@ stdenv.mkDerivation {
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
-    test "$("$out/bin/pi" --version)" = "${packageJson.version}"
+    test "$("$out/bin/axiom" --version)" = "${packageJson.version}"
     # Load host-platform TUI helpers directly so missing native dependencies
     # fail the build rather than silently disabling clipboard support.
     ${nodejs}/bin/node -e \
       "const fs = require('node:fs');
        const path = require('node:path');
-       const dir = '$out/lib/pi/node_modules/@earendil-works/pi-tui/native/' + process.platform + '/prebuilds/' + process.platform + '-' + process.arch;
+       const dir = '$out/lib/axiom/node_modules/@earendil-works/pi-tui/native/' + process.platform + '/prebuilds/' + process.platform + '-' + process.arch;
        if (fs.existsSync(dir)) {
          for (const file of fs.readdirSync(dir)) {
            if (file.endsWith('.node')) require(path.join(dir, file));
          }
        }"
     ${nodejs}/bin/node -e \
-      "require('$out/lib/pi/node_modules/@silvia-odwyer/photon-node')"
+      "require('$out/lib/axiom/node_modules/@silvia-odwyer/photon-node')"
     runHook postInstallCheck
   '';
 
@@ -167,7 +167,7 @@ stdenv.mkDerivation {
     description = packageJson.description;
     homepage = "https://pi.dev";
     license = lib.licenses.mit;
-    mainProgram = "pi";
+    mainProgram = "axiom";
     platforms = [
       "aarch64-darwin"
       "aarch64-linux"

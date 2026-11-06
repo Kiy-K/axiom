@@ -11,13 +11,22 @@ import {
 	PI_ATTRIBUTION,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as ConfigModule from "../src/config.ts";
 import { VERSION } from "../src/config.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createInMemoryModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
+
+const dist = vi.hoisted(() => ({ official: true }));
+vi.mock("../src/config.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof ConfigModule>()),
+	get IS_OFFICIAL_DISTRIBUTION() {
+		return dist.official;
+	},
+}));
 
 describe("createAgentSession client identity", () => {
 	let tempDir: string;
@@ -33,6 +42,7 @@ describe("createAgentSession client identity", () => {
 		mkdirSync(agentDir, { recursive: true });
 		originalTelemetryEnv = process.env.PI_TELEMETRY;
 		delete process.env.PI_TELEMETRY;
+		dist.official = true;
 	});
 
 	afterEach(() => {
@@ -165,6 +175,14 @@ describe("createAgentSession client identity", () => {
 
 	it("turns attribution off with PI_TELEMETRY=0", async () => {
 		process.env.PI_TELEMETRY = "0";
+		const options = await captureOptions(createModel("openrouter", "https://openrouter.ai/api/v1"));
+
+		expect(options?.identity?.attribution).toBeNull();
+	});
+
+	it("never attributes requests to pi in a forked distribution, even with PI_TELEMETRY=1", async () => {
+		dist.official = false;
+		process.env.PI_TELEMETRY = "1";
 		const options = await captureOptions(createModel("openrouter", "https://openrouter.ai/api/v1"));
 
 		expect(options?.identity?.attribution).toBeNull();

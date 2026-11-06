@@ -9,7 +9,8 @@ import {
 	type OAuthChallenge,
 	OAuthIssuerMismatchError,
 } from "@earendil-works/pi-mcp/oauth";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type * as ConfigModule from "../src/config.ts";
 import { InMemoryAuthStorageBackend } from "../src/core/auth-storage.ts";
 import {
 	createMcpAuthProvider,
@@ -18,6 +19,12 @@ import {
 	signInMcpServer,
 } from "../src/extensions/mcp/oauth.ts";
 import { startOAuthMcpServer } from "./suite/mcp-oauth-server.ts";
+
+// These cases pin the upstream (APP_NAME "pi") client identity; mcp-oauth-rebrand.test.ts covers rebranded builds.
+vi.mock("../src/config.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof ConfigModule>()),
+	APP_NAME: "pi",
+}));
 
 describe("MCP OAuth refresh", () => {
 	const cleanups: (() => Promise<void> | void)[] = [];

@@ -6,7 +6,7 @@ import {
 	TuiMainScreen,
 } from "@earendil-works/pi-tui";
 import { existsSync } from "fs";
-import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, getAgentDir, getSettingsPath, PACKAGE_NAME } from "../config.ts";
+import { ENV_AGENT_DIR, getAgentDir, getSettingsPath, IS_OFFICIAL_DISTRIBUTION } from "../config.ts";
 import { areExperimentalFeaturesEnabled } from "../core/experimental.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";
 import { DefaultPackageManager, type ResolvedResource } from "../core/package-manager.ts";
@@ -30,24 +30,6 @@ import {
 	type Theme,
 } from "../modes/interactive/theme/theme.ts";
 import { requestTerminalColors } from "../modes/interactive/theme/theme-controller.ts";
-
-const OFFICIAL_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
-const OFFICIAL_APP_NAME = "pi";
-const OFFICIAL_CONFIG_DIR_NAME = ".pi";
-
-interface DistributionMetadata {
-	packageName: string;
-	appName: string;
-	configDirName: string;
-}
-
-function isOfficialDistribution({ packageName, appName, configDirName }: DistributionMetadata): boolean {
-	return (
-		packageName === OFFICIAL_PACKAGE_NAME &&
-		appName === OFFICIAL_APP_NAME &&
-		configDirName === OFFICIAL_CONFIG_DIR_NAME
-	);
-}
 
 function loadThemes(resources: ResolvedResource[]): Theme[] {
 	const themes: Theme[] = [];
@@ -129,13 +111,7 @@ async function clearStartupTui(ui: TUI): Promise<void> {
  * - setup was not completed before (settings.json does not exist)
  */
 export function shouldRunFirstTimeSetup(settingsPath: string = getSettingsPath()): boolean {
-	if (
-		!isOfficialDistribution({
-			packageName: PACKAGE_NAME,
-			appName: APP_NAME,
-			configDirName: CONFIG_DIR_NAME,
-		})
-	) {
+	if (!IS_OFFICIAL_DISTRIBUTION) {
 		return false;
 	}
 	if (!areExperimentalFeaturesEnabled()) {

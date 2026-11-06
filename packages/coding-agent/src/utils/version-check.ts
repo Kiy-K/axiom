@@ -1,4 +1,5 @@
 import { compare, valid } from "semver";
+import { IS_OFFICIAL_DISTRIBUTION } from "../config.ts";
 import { fetchWithRetry } from "./management-http.ts";
 import { getPiUserAgent } from "./pi-user-agent.ts";
 
@@ -52,7 +53,8 @@ export async function getLatestPiRelease(
 	currentVersion: string,
 	options: { timeoutMs?: number; retry?: boolean } = {},
 ): Promise<LatestPiRelease | undefined> {
-	if (process.env.PI_OFFLINE) return undefined;
+	// Forks must not learn of, or self-update to, upstream Pi releases.
+	if (!IS_OFFICIAL_DISTRIBUTION || process.env.PI_OFFLINE) return undefined;
 
 	const response = await fetchWithRetry(
 		LATEST_VERSION_URL,

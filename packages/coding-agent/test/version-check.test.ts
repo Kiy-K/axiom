@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as ConfigModule from "../src/config.ts";
 import {
 	checkForNewPiVersion,
 	comparePackageVersions,
@@ -9,10 +10,19 @@ import {
 } from "../src/utils/version-check.ts";
 import { allowNetwork } from "./test-network-env.ts";
 
+const dist = vi.hoisted(() => ({ official: true }));
+vi.mock("../src/config.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof ConfigModule>()),
+	get IS_OFFICIAL_DISTRIBUTION() {
+		return dist.official;
+	},
+}));
+
 const originalSkipVersionCheck = process.env.PI_SKIP_VERSION_CHECK;
 
 beforeEach(() => {
 	allowNetwork();
+	dist.official = true;
 });
 
 afterEach(() => {
@@ -32,6 +42,16 @@ describe("version checks", () => {
 		expect(comparePackageVersions("5.0.0-beta.20", "5.0.0-beta.9")).toBeGreaterThan(0);
 		expect(isNewerPackageVersion("0.70.5", "0.70.5")).toBe(false);
 		expect(isNewerPackageVersion("0.70.6", "0.70.5")).toBe(true);
+	});
+
+	it("never asks pi.dev for releases in a forked distribution", async () => {
+		dist.official = false;
+		const fetchMock = vi.fn(async () => Response.json({ version: "9.9.9" }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(getLatestPiRelease("1.0.0", { retry: true })).resolves.toBeUndefined();
+		await expect(checkForNewPiVersion("1.0.0")).resolves.toBeUndefined();
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("returns only newer versions", async () => {

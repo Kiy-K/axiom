@@ -46,7 +46,7 @@ describe("isolateProcessEnvironment", () => {
 			const restore = applyIsolatedEnvironment("/tmp/eval-home", "/tmp/eval-agent");
 			try {
 				expect(homedir()).toBe("/tmp/eval-home");
-				expect(process.env.PI_CODING_AGENT_DIR).toBe("/tmp/eval-agent");
+				expect(process.env.AXIOM_CODING_AGENT_DIR).toBe("/tmp/eval-agent");
 				expect(process.env.PI_EVAL_VARIANT).toBeUndefined();
 				expect(process.env.PI_EVAL_ARTIFACT_DIR).toBeUndefined();
 			} finally {

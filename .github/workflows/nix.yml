@@ -127,10 +127,10 @@ jobs:
 
       - name: Smoke-test
         run: |
-          ./result/bin/pi --version
-          ./result/bin/pi --help > /dev/null
+          ./result/bin/axiom --version
+          ./result/bin/axiom --help > /dev/null
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            test "$(./result/bin/pi --version)" = "${GITHUB_REF_NAME#v}"
+            test "$(./result/bin/axiom --version)" = "${GITHUB_REF_NAME#v}"
           fi
 
   update-stable:

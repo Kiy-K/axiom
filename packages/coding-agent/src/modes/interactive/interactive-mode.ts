@@ -64,6 +64,7 @@ import {
 	getAuthPath,
 	getDebugLogPath,
 	getDocsPath,
+	IS_OFFICIAL_DISTRIBUTION,
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
@@ -2282,7 +2283,9 @@ export class InteractiveMode {
 	}
 
 	private crashReportInstructions(): string {
-		const resume = this.session.sessionFile ? `run \`${APP_NAME} -r\` to resume the session, then` : "start pi and";
+		const resume = this.session.sessionFile
+			? `run \`${APP_NAME} -r\` to resume the session, then`
+			: `start ${APP_NAME} and`;
 		return `To report this crash: ${resume} run /bug. The crash details are attached automatically.`;
 	}
 
@@ -2291,7 +2294,13 @@ export class InteractiveMode {
 		this.bugReportHintShown = true;
 		this.chatContainer.addChild(
 			new ThemedText(
-				() => theme.fg("muted", `If this looks like a ${APP_NAME} bug, /bug sends a report to the developers.`),
+				() =>
+					theme.fg(
+						"muted",
+						IS_OFFICIAL_DISTRIBUTION
+							? `If this looks like a ${APP_NAME} bug, /bug sends a report to the developers.`
+							: `If this looks like a ${APP_NAME} bug, /bug exports a report for https://github.com/Kiy-K/axiom/issues.`,
+					),
 				this.outputPad,
 				0,
 			),
@@ -4406,7 +4415,7 @@ export class InteractiveMode {
 				() =>
 					theme.fg(
 						"warning",
-						`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart pi.`,
+						`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ${APP_NAME}.`,
 					),
 				1,
 				0,

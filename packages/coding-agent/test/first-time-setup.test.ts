@@ -1,10 +1,17 @@
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shouldRunFirstTimeSetup } from "../src/cli/startup-ui.ts";
+import type * as ConfigModule from "../src/config.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+
+// First-time setup only exists in the official Pi distribution; forks are covered in first-time-setup-fork.test.ts.
+vi.mock("../src/config.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof ConfigModule>()),
+	IS_OFFICIAL_DISTRIBUTION: true,
+}));
 
 describe("shouldRunFirstTimeSetup", () => {
 	const originalPiExperimental = process.env.PI_EXPERIMENTAL;

@@ -35,20 +35,20 @@
     {
       packages = forAllSystems (system: {
         default = packageFor system;
-        pi = packageFor system;
+        axiom = packageFor system;
       });
 
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/pi";
-          meta.description = "Pi coding agent";
+          program = "${self.packages.${system}.default}/bin/axiom";
+          meta.description = "Axiom coding agent";
         };
-        pi = self.apps.${system}.default;
+        axiom = self.apps.${system}.default;
       });
 
       overlays.default = final: _previous: {
-        pi = final.callPackage ./nix/package.nix { source = self; };
+        axiom = final.callPackage ./nix/package.nix { source = self; };
       };
     };
 }

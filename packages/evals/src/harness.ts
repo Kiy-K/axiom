@@ -80,7 +80,7 @@ export function resolveModelSelection(
 }
 
 export function applyIsolatedEnvironment(home: string, agentDir: string): () => void {
-	const overrides = { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir };
+	const overrides = { HOME: home, USERPROFILE: home, AXIOM_CODING_AGENT_DIR: agentDir };
 	const previous = new Map<string, string | undefined>();
 	for (const name of Object.keys(process.env)) {
 		if (!name.startsWith("PI_EVAL_")) continue;
@@ -283,7 +283,7 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 	const root = await mkdtemp(join(tmpdir(), "pi-eval-"));
 	const workspace = join(root, "workspace");
 	const isolatedHome = join(root, "home");
-	const agentDir = join(isolatedHome, ".pi", "agent");
+	const agentDir = join(isolatedHome, ".axiom", "agent");
 	const extensionFactories: InlineExtension[] = [];
 	let forcedSystemPrompt: string | undefined;
 	if (options.transformSystemPrompt) {

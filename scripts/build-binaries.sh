@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Build pi binaries for all platforms locally.
+# Build axiom binaries for all platforms locally.
 # Mirrors .github/workflows/build-binaries.yml
 #
 # Usage:
 #   ./scripts/build-binaries.sh [--skip-install] [--skip-build] [--offline-model-data] [--platform <platform>] [--out <dir>]
 #
 # Options:
-#   --skip-install       Skip npm ci
+#   --skip-install       Skip bun install
 #   --skip-build         Skip the package build
 #   --offline-model-data Build with bundled model data instead of refreshing it
 #   --platform <name>    Build only for specified platform (darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64, windows-arm64)
@@ -15,12 +15,12 @@
 #
 # Output:
 #   packages/coding-agent/binaries/
-#     pi-darwin-arm64.tar.gz
-#     pi-darwin-x64.tar.gz
-#     pi-linux-x64.tar.gz
-#     pi-linux-arm64.tar.gz
-#     pi-windows-x64.zip
-#     pi-windows-arm64.zip
+#     axiom-darwin-arm64.tar.gz
+#     axiom-darwin-x64.tar.gz
+#     axiom-linux-x64.tar.gz
+#     axiom-linux-arm64.tar.gz
+#     axiom-windows-x64.zip
+#     axiom-windows-arm64.zip
 
 set -euo pipefail
 
@@ -83,18 +83,18 @@ fi
 
 if [[ "$SKIP_INSTALL" == "false" ]]; then
     echo "==> Installing dependencies..."
-    npm ci --ignore-scripts
+    bun install --ignore-scripts
 else
-    echo "==> Skipping npm ci (--skip-install)"
+    echo "==> Skipping bun install (--skip-install)"
 fi
 
 if [[ "$SKIP_BUILD" == "false" ]]; then
     if [[ "$OFFLINE_MODEL_DATA" == "true" ]]; then
         echo "==> Building all packages with bundled model data..."
-        npm run build:offline
+        bun run build:offline
     else
         echo "==> Building all packages..."
-        npm run build
+        bun run build
     fi
 else
     echo "==> Skipping package build (--skip-build)"
@@ -130,9 +130,9 @@ for platform in "${PLATFORMS[@]}"; do
     # standalone binary before pi starts (see #7684). Disable cwd .env autoload so
     # project env files do not leak into pi's environment (see #10473).
     if [[ "$platform" == windows-* ]]; then
-        bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts ./src/extensions/codemode/worker.ts --outfile "$OUTPUT_DIR/$platform/pi.exe"
+        bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts ./src/extensions/codemode/worker.ts --outfile "$OUTPUT_DIR/$platform/axiom.exe"
     else
-        bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts ./src/extensions/codemode/worker.ts --outfile "$OUTPUT_DIR/$platform/pi"
+        bun build --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts ./src/extensions/codemode/worker.ts --outfile "$OUTPUT_DIR/$platform/axiom"
     fi
 done
 
@@ -143,6 +143,7 @@ for platform in "${PLATFORMS[@]}"; do
     cp package.json "$OUTPUT_DIR/$platform/"
     cp README.md "$OUTPUT_DIR/$platform/"
     cp CHANGELOG.md "$OUTPUT_DIR/$platform/"
+    cp ../../LICENSE "$OUTPUT_DIR/$platform/"
     cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm "$OUTPUT_DIR/$platform/"
     mkdir -p "$OUTPUT_DIR/$platform/theme"
     cp dist/modes/interactive/theme/*.json "$OUTPUT_DIR/$platform/theme/"
@@ -165,12 +166,12 @@ cd "$OUTPUT_DIR"
 for platform in "${PLATFORMS[@]}"; do
     if [[ "$platform" == windows-* ]]; then
         # Windows (zip)
-        echo "Creating pi-$platform.zip..."
-        (cd "$platform" && zip -r ../pi-$platform.zip .)
+        echo "Creating axiom-$platform.zip..."
+        (cd "$platform" && zip -r ../axiom-$platform.zip .)
     else
         # Unix platforms (tar.gz) - use wrapper directory for mise compatibility
-        echo "Creating pi-$platform.tar.gz..."
-        mv "$platform" pi && tar -czf pi-$platform.tar.gz pi && mv pi "$platform"
+        echo "Creating axiom-$platform.tar.gz..."
+        mv "$platform" axiom && tar -czf axiom-$platform.tar.gz axiom && mv axiom "$platform"
     fi
 done
 
@@ -179,9 +180,9 @@ echo "==> Extracting archives for testing..."
 for platform in "${PLATFORMS[@]}"; do
     rm -rf "$platform"
     if [[ "$platform" == windows-* ]]; then
-        mkdir -p "$platform" && (cd "$platform" && unzip -q ../pi-$platform.zip)
+        mkdir -p "$platform" && (cd "$platform" && unzip -q ../axiom-$platform.zip)
     else
-        tar -xzf pi-$platform.tar.gz && mv pi "$platform"
+        tar -xzf axiom-$platform.tar.gz && mv axiom "$platform"
     fi
 done
 
@@ -193,8 +194,8 @@ echo ""
 echo "Extracted directories for testing:"
 for platform in "${PLATFORMS[@]}"; do
     if [[ "$platform" == windows-* ]]; then
-        echo "  $OUTPUT_DIR/$platform/pi.exe"
+        echo "  $OUTPUT_DIR/$platform/axiom.exe"
     else
-        echo "  $OUTPUT_DIR/$platform/pi"
+        echo "  $OUTPUT_DIR/$platform/axiom"
     fi
 done

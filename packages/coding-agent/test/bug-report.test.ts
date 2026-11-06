@@ -74,6 +74,9 @@ describe("bug report prompt", () => {
 			expect(deliveryLines.some((line) => line.includes("Description: Request failed"))).toBe(true);
 			expect(deliveryLines.some((line) => line.includes("↳ pi exiting..."))).toBe(true);
 			expect(deliveryLines.some((line) => line.includes("stack trace"))).toBe(true);
+			// This build is a fork: reports are only exported, never uploaded to the Pi developers.
+			expect(deliveryLines.some((line) => line.includes("Export as Zip"))).toBe(true);
+			expect(deliveryLines.some((line) => line.includes("Upload Report"))).toBe(false);
 
 			deliverySelector.handleInput("j");
 			deliverySelector.handleInput("j");
