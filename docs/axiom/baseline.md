@@ -61,13 +61,12 @@ Host: Fedora, Node 24.22.1, Bun 1.4.4. Each row is a separate run; logs are in `
 | Target | `npm ci` | `build` | `check` | `test.sh` |
 |---|---|---|---|---|
 | Pin `922c3ff` (`git archive`, lock as committed) | rc 0 | rc 0 | rc 0 | rc 0, after `npm run build:daemon` in `packages/env` |
-| HEAD working tree, lock refreshed (`@types/bun@1.4.4` and `bun-types@1.4.4` added by `npm install --package-lock-only`) | rc 0 | rc 0 | rc 0 | rc 0, after `npm run build:daemon` in `packages/env` |
+| HEAD working tree, lock refreshed (`@types/bun@1.4.4` and `bun-types@1.4.4` added by `npm install --package-lock-only`), fresh copy | rc 0 | rc 0 | rc 0 | rc 0, `test.sh` builds the daemon first |
 
-- `test.sh` does not build the Rust daemon. Without `npm run build:daemon`, seven `packages/env` files fail with "Build the daemon first".
+- `test.sh` at HEAD runs `npm run build:daemon --workspace packages/env` before the isolated run, as CI does. Without it, seven `packages/env` files fail with "Build the daemon first". The pin's `test.sh` has no such step, so the pin row needed the manual build.
 - Pin coding-agent: 343 files and 3067 tests pass. HEAD copy: 346 files and 3093 tests pass.
 - The root has no `hydrate` script at the pin or at HEAD. An earlier note that `npm run hydrate` passed was wrong.
 - Bun at HEAD (`bun run test` per package): all workspace packages exit 0. `tui` uses `node --test`, so its tests run under Node; its log has no summary line.
-- `test.sh` still does not build the Rust daemon; the HEAD row needs `npm run build:daemon` first. Whether `test.sh` should build it (a cargo requirement) is open.
 
 ## Binary build (Bun)
 
