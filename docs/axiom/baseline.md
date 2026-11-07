@@ -98,4 +98,4 @@ Differences from upstream Pi that Axiom ships on purpose. Each is traceable to `
 
 ## Open for P0 (issue #1)
 
-- Real-model task baseline: provider, model and budget from the user (item 3 of P0). Until it is run, the P0 baseline item is open.
+- Real-model task baseline (P0 item 3, deferred by the user): provider `openai-codex`, model "GPT-6 Luna". The exact model ID must be checked against the provider catalog before the run; the budget is still open. Until the run is done and its results are recorded here, the P0 baseline item stays open.
