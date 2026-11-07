@@ -357,9 +357,11 @@ describe("export and import per address", () => {
 			(workers.state.value as Record<string, { status: string } | undefined>)["project|p1"]?.status;
 		expect(status()).toBeUndefined();
 		let done = false;
-		const exporting = app.exportData(Project({ id: "p1" }), join(base, "p1.tar"), context).then(() => {
+		const exporting = app.exportData(Project({ id: "p1" }), join(base, "p1.tar"), context).finally(() => {
 			done = true;
 		});
+		// The loop must end on failure too; the `await exporting` below rethrows the error.
+		exporting.catch(() => {});
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		const holder = app.host.get(Notes, { id: "p1" }, context);
 		let heldWhileExporting = false;
