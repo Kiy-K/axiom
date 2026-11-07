@@ -115,4 +115,4 @@ Limits of this result:
 - Token counts are provider usage; cost is a catalog estimate. One run per cell: the wall times are noisy.
 - The model ID was checked against OpenAI's documentation, but the provider's response was not captured. The records do not store which model answered.
 
-P0 item 3 stays open. This run is a real-model baseline, but on this task set it shows parity and does not establish a difference. Extending the tasks and the safety cases is a decision for the owner.
+P0 item 3 is ticked on issue #1 by the owner. The item asks for a recorded, reproducible baseline, which this is. The task set is small and the safety probes are weak (limits above), so the run shows parity and no difference. Extending the tasks and the safety cases is a separate decision, not part of P0.
