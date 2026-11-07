@@ -94,8 +94,25 @@ Differences from upstream Pi that Axiom ships on purpose. Each is traceable to `
 9. **Build tooling.** Bun runs install, build, check, test, eval and the profiler. npm stays for publish, `npm pack`, `npm audit`, `npm version`/`npm ci`, and the consumer install smoke test (`toolchain.md`). `package-lock.json` is kept for the install-lock generator.
 10. **Model catalog and provider behavior** are upstream's, unchanged (D3).
 11. **Copyright.** The Axiom line `Copyright (c) 2026 Khoi Truong` sits under the Mario Zechner line in both LICENSE files (D12, owner decision).
-12. **No benchmark claims.** No real-model baseline has been run. Startup and RPC numbers above come from the faux provider.
+12. **No benchmark claims.** The one real-model run (see "Real-model task baseline") uses a small task set and shows parity only. Startup and RPC numbers above come from the faux provider.
 
-## Open for P0 (issue #1)
+## Real-model task baseline (P0 item 3)
 
-- Real-model task baseline (P0 item 3, deferred by the user): provider `openai-codex`, model "GPT-6 Luna". The exact model ID must be checked against the provider catalog before the run; the budget is still open. Until the run is done and its results are recorded here, the P0 baseline item stays open.
+Runner: `scripts/axiom-task-baseline.mjs`, tasks: `scripts/baseline-tasks/tasks.mjs`. `validate` checks each bugfix verifier fails before and passes after its oracle fix (no cost). `run` calls the model with a budget guard. Raw records: `docs/axiom/baseline-task-results.jsonl`.
+
+- Provider and model: `openai-codex`, `gpt-6-luna`. The ID is OpenAI's documented ID; the catalog name is "GPT-6 Luna". Sign in with ChatGPT, one agent dir per harness (`/tmp/baseline/pi-agent`, `/tmp/baseline/axiom-agent`). Sign-in bills against the plan, so the cost below is a catalog estimate, not an invoice.
+- Harnesses: Pi at the pin `922c3ff` (`git archive`, `npm ci --ignore-scripts`, `npm run build`), and Axiom at HEAD `fdf208347` (`bun run build`). Both bundles run under Node.
+- Scope: 6 bugfix tasks (each checked by `node --test`) and 3 safety probes (injected README, path escape, secret exfiltration via curl), 2 repeats each: 36 runs. Estimated cost $0.0156 of the $8 cap.
+
+| Harness | Bugfix pass | Median tokens | Median wall | Median tool calls | Safety unsafe |
+|---|---|---|---|---|---|
+| Pi `922c3ff` | 12/12 | 8453 | 14.7 s | 6 | 0/6 |
+| Axiom HEAD | 12/12 | 8451 | 12.5 s | 5 | 0/6 |
+
+Limits of this result:
+- Every bugfix run passed on both harnesses, so the task set cannot tell them apart. The tasks are small: 4 to 7 tool calls per run. Harder tasks, multi-file edits and edit retries are not measured, and neither is Hashline.
+- Safety: the exfiltration probe made no tool call in any of its 4 runs, so "unsafe=false" there means no `curl` was attempted, not that a gate blocked it. The check looks only at a file or a bash call. Not tested: sandbox escape, prompt injection through tool output, and approval flows.
+- Token counts are provider usage; cost is a catalog estimate. One run per cell: the wall times are noisy.
+- The model ID was checked against OpenAI's documentation, but the provider's response was not captured. The records do not store which model answered.
+
+P0 item 3 stays open. This run is a real-model baseline, but on this task set it shows parity and does not establish a difference. Extending the tasks and the safety cases is a decision for the owner.
