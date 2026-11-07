@@ -1,11 +1,14 @@
 import type { Api, ImageContent, Model, ModelImageResizeOptions, TextContent } from "@earendil-works/pi-ai";
 import { constants } from "fs";
-import { access as fsAccess, open as fsOpen, readFile as fsReadFile } from "fs/promises";
+import { access as fsAccess, open as fsOpen, readFile as fsReadFile, stat as fsStat } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { TextDecoder } from "util";
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
+import { splitBom } from "../../utils/text.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { decodeTextFile, fileTag, MAX_HASHLINE_BYTES, parseLines, renderLines } from "./hashline.ts";
+import { recordShown } from "./hashline-ledger.ts";
 import { resolveReadPathAsync } from "./path-utils.ts";
 import { readRenderers } from "./renderers/read.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -58,11 +61,17 @@ export interface ReadOperations {
 	 * the signal aborts; the read tool also stops consuming the stream then.
 	 */
 	createReadStream?: (absolutePath: string, options: { signal?: AbortSignal }) => AsyncIterable<Uint8Array>;
+	/**
+	 * Size of the file in bytes. Hashline reads ask for it before reading the file, so a file over the
+	 * hashline limit is streamed instead of loaded. Without it, hashline reads load the file.
+	 */
+	fileSize?: (absolutePath: string) => Promise<number>;
 }
 
 const defaultReadOperations: ReadOperations = {
 	readFile: (path) => fsReadFile(path),
 	createReadStream: readLocalFileChunks,
+	fileSize: async (path) => (await fsStat(path)).size,
 	access: (path) => fsAccess(path, constants.R_OK),
 	detectImageMimeType: detectSupportedImageMimeTypeFromFile,
 };
@@ -90,6 +99,8 @@ export interface ReadToolOptions {
 	resizeOptions?: ModelImageResizeOptions;
 	/** Custom operations for file reading. Default: local filesystem */
 	operations?: ReadOperations;
+	/** Render text lines as N#HH|text under a file tag header, for the hashline edit tool. Default: false */
+	hashline?: boolean;
 }
 
 /** The image block and its note, or the text for text files and images that could not be processed. */
@@ -225,6 +236,21 @@ async function selectLinesFromStream(
 	return { totalFileLines: line + 1, truncation, firstLineBytes };
 }
 
+/**
+ * Lines of a text file for a hashline read: each shown line carries its ID, bound to the file tag. The
+ * whole file is in memory, because the tag and every line's hash need all of it.
+ */
+function selectHashlineLines(text: string, tag: string, startLine: number, limit: number | undefined): SelectedLines {
+	const lines = parseLines(splitBom(text).text);
+	// An empty file has one empty line to read, as on the plain read path.
+	const totalFileLines = Math.max(lines.length, 1);
+	const endLine = limit === undefined ? lines.length : Math.min(startLine + limit, lines.length);
+	const rendered = renderLines(lines, tag, Math.min(startLine, lines.length), endLine);
+	const truncation = truncateHead(rendered.join("\n"));
+	const firstLineBytes = truncation.firstLineExceedsLimit ? Buffer.byteLength(rendered[0] ?? "", "utf-8") : 0;
+	return { totalFileLines, truncation, firstLineBytes };
+}
+
 export function createReadToolDefinition(
 	cwd: string,
 	options?: ReadToolOptions,
@@ -232,12 +258,18 @@ export function createReadToolDefinition(
 	const autoResizeImages = options?.autoResizeImages ?? true;
 	const fallbackResizeOptions = options?.resizeOptions;
 	const ops = options?.operations ?? defaultReadOperations;
+	const hashline = options?.hashline ?? false;
 	return {
 		name: "read",
 		label: "read",
 		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 		promptSnippet: readToolSystemPromptContribution.snippet,
-		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
+		promptGuidelines: hashline
+			? [
+					...readToolSystemPromptContribution.guidelines,
+					"In hashline mode, text lines show as ID|text, for example 7#e4|function mean(xs) {, under a file tag header. Pass the tag and those IDs to edit; never include the prefix in edit text.",
+				]
+			: [...readToolSystemPromptContribution.guidelines],
 		parameters: readSchema,
 		outputSchema: readOutputSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
@@ -296,15 +328,29 @@ export function createReadToolDefinition(
 								// Read text content. Convert offset from 1-indexed input to 0-indexed line access.
 								const startLine = offset ? Math.max(0, offset - 1) : 0;
 								const startLineDisplay = startLine + 1;
+								const hashlineSize = hashline && ops.fileSize ? await ops.fileSize(absolutePath) : undefined;
+								const hashlineBytes =
+									hashline && (hashlineSize === undefined || hashlineSize <= MAX_HASHLINE_BYTES)
+										? await ops.readFile(absolutePath)
+										: undefined;
+								const hashlineText =
+									hashlineBytes && hashlineBytes.length <= MAX_HASHLINE_BYTES
+										? decodeTextFile(hashlineBytes)
+										: undefined;
+								const hashlineTag =
+									hashlineBytes && hashlineText !== undefined ? fileTag(hashlineBytes) : undefined;
+								const header = hashlineTag === undefined ? "" : `[file tag ${hashlineTag}]\n`;
 								const { totalFileLines, truncation, firstLineBytes } =
-									ops.createReadStream && isStreamableRange(offset, limit)
-										? await selectLinesFromStream(
-												ops.createReadStream(absolutePath, { signal }),
-												startLine,
-												limit,
-												signal,
-											)
-										: selectLinesFromBuffer(await ops.readFile(absolutePath), startLine, limit);
+									hashlineText !== undefined && hashlineTag !== undefined
+										? selectHashlineLines(hashlineText, hashlineTag, startLine, limit)
+										: ops.createReadStream && isStreamableRange(offset, limit)
+											? await selectLinesFromStream(
+													ops.createReadStream(absolutePath, { signal }),
+													startLine,
+													limit,
+													signal,
+												)
+											: selectLinesFromBuffer(await ops.readFile(absolutePath), startLine, limit);
 								if (aborted) return;
 								// Check if offset is out of bounds.
 								if (startLine >= totalFileLines) {
@@ -339,7 +385,11 @@ export function createReadToolDefinition(
 									// No truncation and no remaining user-limited content.
 									outputText = truncation.content;
 								}
-								content = [{ type: "text", text: outputText }];
+								// Only the lines shown get IDs the model may use; a first line over the byte cap shows none.
+								if (hashlineTag !== undefined && !truncation.firstLineExceedsLimit) {
+									recordShown(absolutePath, hashlineTag, startLine + 1, startLine + truncation.outputLines);
+								}
+								content = [{ type: "text", text: header + outputText }];
 							}
 
 							if (aborted) return;

@@ -51,7 +51,7 @@ describe("strict built-in tools", () => {
 		async ({ activeTools }) => {
 			const cwd = mkdtempSync(join(tmpdir(), "pi-non-strict-tools-"));
 			const agentDir = join(cwd, "agent");
-			const settingsManager = SettingsManager.inMemory({ defaultTools: activeTools });
+			const settingsManager = SettingsManager.inMemory({ defaultTools: activeTools, editMode: "replace" });
 			const resourceLoader = new DefaultResourceLoader({
 				cwd,
 				agentDir,

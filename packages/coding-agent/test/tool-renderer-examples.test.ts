@@ -35,7 +35,7 @@ describe("tool renderer examples", () => {
 	});
 
 	async function getSessionState(extensionPath: string | undefined, tools: string[]) {
-		const settingsManager = SettingsManager.inMemory();
+		const settingsManager = SettingsManager.inMemory({ editMode: "replace" });
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: tempDir,
 			agentDir,

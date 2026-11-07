@@ -1382,6 +1382,10 @@ export class SettingsManager {
 		return mode && valid.includes(mode) ? mode : SETTINGS_DEFAULTS.treeFilterMode;
 	}
 
+	getEditMode(): "replace" | "hashline" {
+		return this.settings.editMode ?? SETTINGS_DEFAULTS.editMode;
+	}
+
 	setTreeFilterMode(mode: "default" | "no-tools" | "user-only" | "labeled-only" | "all"): void {
 		this.globalSettings.treeFilterMode = mode;
 		this.markModified("treeFilterMode");

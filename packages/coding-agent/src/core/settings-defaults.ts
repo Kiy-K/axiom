@@ -44,6 +44,7 @@ export const SETTINGS_DEFAULTS = {
 	},
 	doubleEscapeAction: "tree",
 	treeFilterMode: "default",
+	editMode: "hashline",
 	editorPaddingX: 0,
 	outputPad: 1,
 	autocompleteMaxVisible: 5,

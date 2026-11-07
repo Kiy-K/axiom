@@ -671,6 +671,7 @@ describe("codemode options and store", () => {
 	it("resolves read calls to text for text files and to image blocks that image() shows", async () => {
 		const harness = await createHarness({
 			initialActiveToolNames: ["codemode", "read"],
+			settings: { editMode: "replace" },
 			extensionFactories: [createCodemodeExtension()],
 		});
 		harnesses.push(harness);

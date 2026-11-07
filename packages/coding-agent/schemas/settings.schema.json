@@ -542,6 +542,20 @@
       "description": "Default filter when opening /tree.",
       "default": "default"
     },
+    "editMode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "replace"
+        },
+        {
+          "type": "string",
+          "const": "hashline"
+        }
+      ],
+      "description": "Edit tool mode. replace: exact-text oldText edits. hashline: read shows N#HH| line IDs under a file tag, and edit takes those IDs. Takes effect on the next session or /reload.",
+      "default": "hashline"
+    },
     "thinkingBudgets": {
       "type": "object",
       "properties": {

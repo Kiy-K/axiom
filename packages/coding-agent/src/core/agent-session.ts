@@ -148,6 +148,7 @@ import {
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
+import { createHashlineEditToolDefinition } from "./tools/hashline-edit.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
@@ -3741,6 +3742,7 @@ export class AgentSession {
 		const autoResizeImages = this.settingsManager.getImageAutoResize();
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
+		const editMode = this.settingsManager.getEditMode();
 		const baseToolDefinitions = this._baseToolsOverride
 			? Object.fromEntries(
 					Object.entries(this._baseToolsOverride).map(([name, tool]) => [
@@ -3748,10 +3750,13 @@ export class AgentSession {
 						createToolDefinitionFromAgentTool(tool),
 					]),
 				)
-			: createAllToolDefinitions(this._cwd, {
-					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
-				});
+			: {
+					...createAllToolDefinitions(this._cwd, {
+						read: { autoResizeImages, hashline: editMode === "hashline" },
+						bash: { commandPrefix: shellCommandPrefix, shellPath },
+					}),
+					...(editMode === "hashline" ? { edit: createHashlineEditToolDefinition(this._cwd) } : {}),
+				};
 
 		this._baseToolDefinitions = new Map(
 			Object.entries(baseToolDefinitions).map(([name, tool]) => [name, tool as ToolDefinition]),

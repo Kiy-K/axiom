@@ -369,6 +369,13 @@ export const SettingsSchema = Type.Object(
 				},
 			),
 		),
+		editMode: Type.Optional(
+			Type.Union([Type.Literal("replace"), Type.Literal("hashline")], {
+				description:
+					"Edit tool mode. replace: exact-text oldText edits. hashline: read shows N#HH| line IDs under a file tag, and edit takes those IDs. Takes effect on the next session or /reload.",
+				default: SETTINGS_DEFAULTS.editMode,
+			}),
+		),
 		thinkingBudgets: Type.Optional(
 			thinkingBudgetsSettings({
 				description: "Custom token budgets for thinking levels.",
