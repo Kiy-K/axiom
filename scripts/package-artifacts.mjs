@@ -77,8 +77,8 @@ export function produceArtifactSet({ repoRoot, outDir, build = true, offlineMode
 	const root = resolve(repoRoot);
 	const artifactDirectory = prepareOutputDirectory(outDir, { force, repoRoot: root });
 	if (build) {
-		execNpmSync(["run", "clean"], { cwd: root, stdio: "inherit" });
-		execNpmSync(["run", offlineModelData ? "build:offline" : "build"], { cwd: root, stdio: "inherit" });
+		execFileSync("bun", ["run", "clean"], { cwd: root, stdio: "inherit" });
+		execFileSync("bun", ["run", offlineModelData ? "build:offline" : "build"], { cwd: root, stdio: "inherit" });
 	}
 	const artifactSource = source === undefined ? getGitSource(root) : source;
 	const packages = getPublicWorkspacePackages(join(root, "packages"));

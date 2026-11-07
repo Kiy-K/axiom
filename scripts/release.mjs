@@ -10,7 +10,7 @@
  * 1. Check for uncommitted changes
  * 2. Verify every public workspace package is registered on npm,
  *    pin the newest model catalog for Nix, and build with it
- * 3. Bump version via npm run version:xxx or set an explicit version
+ * 3. Bump version via bun run version:xxx or set an explicit version
  * 4. Update CHANGELOG.md files: [Unreleased] -> [version] - date
  * 5. Regenerate release artifacts
  * 6. Run checks and tests
@@ -97,7 +97,7 @@ const MODEL_CATALOG_PIN = "nix/model-catalog.json";
 async function pinAndBuildWithNewestModelCatalog() {
 	const root = process.cwd();
 	const committedPin = readFileSync(MODEL_CATALOG_PIN, "utf8");
-	const restored = `${MODEL_CATALOG_PIN} was restored. Run \`npm run generate:models\` to restore local model data, then rerun the release.`;
+	const restored = `${MODEL_CATALOG_PIN} was restored. Run \`bun run generate:models\` to restore local model data, then rerun the release.`;
 	let revision;
 	let result;
 	try {
@@ -105,23 +105,22 @@ async function pinAndBuildWithNewestModelCatalog() {
 		revision = pin.revision;
 		console.log(`  Pinned model catalog ${revision}`);
 		hydrateModelCatalogBytes(root, pin.bytes);
-		console.log("$ npm run build:offline");
-		const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-		result = spawnSync(npm, ["run", "build:offline"], { stdio: "inherit" });
+		console.log("$ bun run build:offline");
+		result = spawnSync("bun", ["run", "build:offline"], { stdio: "inherit" });
 	} finally {
 		if (result?.status !== 0) writeFileSync(MODEL_CATALOG_PIN, committedPin);
 	}
 	// Only a build that ran and exited non-zero says anything about the catalog.
 	if (result.error || result.signal) {
 		const cause = result.error ? result.error.message : `it was stopped by ${result.signal}`;
-		console.error(`Error: npm run build:offline did not complete: ${cause}.\n${restored}`);
+		console.error(`Error: bun run build:offline did not complete: ${cause}.\n${restored}`);
 		process.exit(1);
 	}
 	if (result.status !== 0) {
 		console.error(
 			`Error: the build with the newest published model catalog ${revision} failed; the Nix build of the release tag would fail too.\n` +
 				"If the errors concern model IDs, types, or APIs, the catalog predates main: publish one from main (Publish Model Catalog workflow).\n" +
-				"Otherwise fix the build (e.g. run `npm ci --ignore-scripts` if node_modules is out of date).\n" +
+				"Otherwise fix the build (e.g. run `bun install --ignore-scripts` if node_modules is out of date).\n" +
 				restored,
 		);
 		process.exit(1);
@@ -188,7 +187,7 @@ function bumpOrSetVersion(target) {
 
 	if (BUMP_TYPES.has(target)) {
 		console.log(`Bumping version (${target})...`);
-		run(`npm run version:${target}`);
+		run(`bun run version:${target}`);
 	} else {
 		if (compareVersions(target, currentVersion) <= 0) {
 			console.error(`Error: explicit version ${target} must be greater than current version ${currentVersion}.`);
@@ -285,21 +284,21 @@ console.log();
 
 // 5. Regenerate release artifacts
 console.log("Regenerating release artifacts...");
-run("npm run generate:models");
-run("npm run check:model-data");
-run("npm run install-lock:coding-agent");
+run("bun run generate:models");
+run("bun run check:model-data");
+run("bun run install-lock:coding-agent");
 console.log();
 
 // 6. Run checks and tests
 console.log("Running checks...");
-run("npm run check");
+run("bun run check");
 console.log();
 
 console.log("Building packages for tests...");
-run("npm run build:offline");
+run("bun run build:offline");
 console.log();
 
-// PI_RELEASE_SKIP_TESTS=1 skips the test suite, e.g. when it already passed in `npm run release:local`
+// PI_RELEASE_SKIP_TESTS=1 skips the test suite, e.g. when it already passed in `bun run release:local`
 // and an overloaded machine makes timing-sensitive tests fail. Checks and the install check still run.
 if (process.env.PI_RELEASE_SKIP_TESTS === "1") {
 	console.log("Skipping tests (PI_RELEASE_SKIP_TESTS=1)\n");
@@ -310,7 +309,7 @@ if (process.env.PI_RELEASE_SKIP_TESTS === "1") {
 }
 
 console.log("Checking the packed coding-agent consumer install...");
-run("npm run check:package-install");
+run("bun run check:package-install");
 console.log();
 
 // 7. Commit and tag

@@ -21,14 +21,17 @@ Filter fan-outs use `bun run --filter './packages/*'`. The `./` prefix is requir
 
 | Where | Command | Why it stays on npm |
 |---|---|---|
-| root `clean` | `npm run clean --workspaces --if-present` | Not ported. |
 | root `eval` | `npm run eval --workspace=@earendil-works/pi-evals --` | Not ported. Argument passing through `bun run --filter` was not verified. |
 | root `version:patch/minor/major` | `npm version`, `npm install --package-lock-only --ignore-scripts`, then `bun install --lockfile-only --ignore-scripts` | Writes `package-lock.json`, which stays (see below). The Bun step refreshes `bun.lock`. |
 | root `version:set` | `npm version --workspaces --no-workspaces-update` | Not ported. |
-| root `prepublishOnly`, `publish`, `publish:dry` | `npm run ...`, `node scripts/publish.mjs` | Publishing uses npm and npm trusted publishing. |
-| `build-binaries.yml` publish job | `npm install -g npm@11.16.0`, `npm run check:package-install`, `node scripts/publish.mjs` | npm trusted publishing needs npm 11.16. The consumer smoke test packs and installs with npm. |
+| `prepublishOnly`, `publish`, `publish:dry` (root) | `bun run` for the chain; `node scripts/publish.mjs` for the publish itself | The publish step uses npm and npm trusted publishing. |
+| `build-binaries.yml` publish job | `npm install -g npm@11.16.0`, `node scripts/publish.mjs --dry-run` | npm trusted publishing needs npm 11.16. The consumer smoke test (`bun run check:package-install`) packs and installs with npm inside the script. |
 | `env.yml` | `npm pack --dry-run --json` | Checks the npm file list of `@earendil-works/pi-env`. |
 | `npm-audit.yml` | `npm ci --ignore-scripts --no-audit --no-fund`, `node scripts/npm-audit.mjs` (runs `npm audit --omit=dev`), `npm audit signatures --omit=dev` | Audit and registry-signature checks are npm features. |
+| `scripts/release.mjs` | `npm version`, `npm install --package-lock-only --ignore-scripts`, `npm ci --ignore-scripts` | The version bump writes `package-lock.json`. `npm ci` builds the npm layout the release checks use. |
+| `scripts/package-artifacts.mjs`, `scripts/preview-packages.mjs`, `scripts/publish.mjs` | `npm pack --json`, `npm view`, `npm publish` | Packing and registry queries are npm features. |
+| `scripts/local-package-install.mjs` | `npm install` of the packed tarballs into a consumer directory | The consumer smoke test installs as an npm user would. |
+| `scripts/profile-coding-agent-node.mjs` | `npm run --workspace <pkg> build` in sequence | Not ported. `bun run --filter` does not promise the same build order; not verified. |
 
 Messages that scripts print (for example "Run: npm run install-lock:coding-agent") are not invocations and are not listed.
 
@@ -36,7 +39,7 @@ Messages that scripts print (for example "Run: npm run install-lock:coding-agent
 
 - `bun.lock` is the CI install source (`--frozen-lockfile`).
 - `package-lock.json` is kept. `scripts/generate-coding-agent-install-lock.mjs` reads it, and the version scripts write it. Changing the install-lock source is a separate decision.
-- The pre-commit lockfile guard (`scripts/check-lockfile-commit.mjs`) reads only `package-lock.json`. Changes to `bun.lock` are not guarded and must be reviewed in the diff.
+- The pre-commit lockfile guard (`scripts/check-lockfile-commit.mjs`) guards both `package-lock.json` and `bun.lock`. A staged change to either needs `PI_ALLOW_LOCKFILE_CHANGE=1`. The workspace-only exemption applies to `package-lock.json` alone, so a commit that also stages `bun.lock` needs the flag.
 
 ### Known differences (npm lock vs bun.lock)
 

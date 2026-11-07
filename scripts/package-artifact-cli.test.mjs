@@ -14,7 +14,7 @@ function runScript(name, args) {
 function assertFailsBeforeWork(result, message) {
 	assert.notEqual(result.status, 0);
 	assert.match(result.stderr, message);
-	assert.doesNotMatch(result.stdout, /generate:models|npm run clean/);
+	assert.doesNotMatch(result.stdout, /generate:models|bun run clean/);
 }
 
 test("rejects missing option values before doing work", () => {

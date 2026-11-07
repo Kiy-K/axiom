@@ -12,7 +12,7 @@
 		"packages/coding-agent/examples/extensions/gondolin"
 	],
 	"scripts": {
-		"clean": "npm run clean --workspaces --if-present",
+		"clean": "bun run --workspaces --if-present clean",
 		"build": "cd packages/telemetry && bun run build && cd ../schema && bun run build && cd ../chord && bun run build && cd ../tui && bun run build && cd ../codemode && bun run build && cd ../mcp && bun run build && cd ../ai && bun run build && cd ../durable && bun run build && cd ../env && bun run build && cd ../agent && bun run build && cd ../coding-agent && bun run build",
 		"build:offline": "cd packages/telemetry && bun run build && cd ../schema && bun run build && cd ../chord && bun run build && cd ../tui && bun run build && cd ../codemode && bun run build && cd ../mcp && bun run build && cd ../ai && bun run build:offline && cd ../durable && bun run build && cd ../env && bun run build && cd ../agent && bun run build && cd ../coding-agent && bun run build",
 		"build:native:darwin": "cd packages/tui && bun run build:native:darwin",
@@ -44,9 +44,9 @@
 		"version:minor": "npm version minor --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts && bun install --lockfile-only --ignore-scripts",
 		"version:major": "npm version major --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts && bun install --lockfile-only --ignore-scripts",
 		"version:set": "npm version --workspaces --no-workspaces-update",
-		"prepublishOnly": "npm run clean && bun run build && bun run check",
-		"publish": "npm run prepublishOnly && node scripts/publish.mjs",
-		"publish:dry": "npm run prepublishOnly && node scripts/publish.mjs --dry-run",
+		"prepublishOnly": "bun run clean && bun run build && bun run check",
+		"publish": "bun run prepublishOnly && node scripts/publish.mjs",
+		"publish:dry": "bun run prepublishOnly && node scripts/publish.mjs --dry-run",
 		"release:local": "node scripts/local-release.mjs",
 		"pack:packages": "node scripts/pack-packages.mjs",
 		"install-lock:coding-agent": "node scripts/generate-coding-agent-install-lock.mjs",

@@ -377,7 +377,7 @@ jobs:
         run: bun run test
 
       - name: Smoke-test packed npm consumer
-        run: npm run check:package-install
+        run: bun run check:package-install
 
       - name: Upgrade npm for trusted publishing
         run: |

@@ -79,22 +79,24 @@ const stagedFiles = git(["diff", "--cached", "--name-only"])
 	.map((line) => line.trim())
 	.filter(Boolean);
 
-if (!stagedFiles.includes("package-lock.json")) {
+const lockfiles = ["package-lock.json", "bun.lock"].filter((name) => stagedFiles.includes(name));
+if (lockfiles.length === 0) {
 	process.exit(0);
 }
 
 if (allowed) {
-	console.error("package-lock.json is staged; PI_ALLOW_LOCKFILE_CHANGE is set, allowing commit.");
+	console.error(`${lockfiles.join(" and ")} staged; PI_ALLOW_LOCKFILE_CHANGE is set, allowing commit.`);
 	process.exit(0);
 }
 
+// bun.lock has no workspace-only exemption: the workspace check parses package-lock.json only.
 const changes = getLockfilePackageChanges();
-if (changes && hasOnlyWorkspacePackageChanges(changes)) {
+if (changes && !lockfiles.includes("bun.lock") && hasOnlyWorkspacePackageChanges(changes)) {
 	console.error("package-lock.json only updates workspace package metadata; allowing commit.");
 	process.exit(0);
 }
 
-console.error("package-lock.json is staged.");
+console.error(`${lockfiles.join(" and ")} staged.`);
 console.error("");
 console.error("Review lockfile changes before committing:");
 console.error("  - confirm every new/updated package is intentional");
