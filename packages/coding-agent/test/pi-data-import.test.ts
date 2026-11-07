@@ -482,6 +482,19 @@ describe("runPiDataImport", () => {
 		expect(runPiDataImport([], {})).toEqual({ kind: "skipped", reason: "overlap" });
 	});
 
+	posixOnly("overlap wins over PI_CODING_AGENT_DIR and prints no hint", () => {
+		writePiDir(legacy);
+		mkdirSync(join(legacy, "nested"));
+		symlinkSync(join(legacy, "nested"), join(home, ".axiom"));
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		expect(runPiDataImport([], { PI_CODING_AGENT_DIR: join(home, "elsewhere") })).toEqual({
+			kind: "skipped",
+			reason: "overlap",
+		});
+		expect(error).not.toHaveBeenCalled();
+		expect(existsSync(target)).toBe(false);
+	});
+
 	it("copies from the realpath when the legacy dir is a symlink", () => {
 		const real = join(home, "dotfiles", "pi-agent");
 		writePiDir(real);

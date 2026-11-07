@@ -1,6 +1,6 @@
 # Axiom coding agent
 
-> Docs under docs/ say `pi`, `~/.pi/agent`, `.pi/`; in Axiom read `axiom`, `~/.axiom/agent`, `.axiom/`. `PI_*` env vars and the `pi` extension API are unchanged.
+> Docs under docs/ say `pi`, `~/.pi/agent`, `.pi/`; in Axiom read `axiom`, `~/.axiom/agent`, `.axiom/`. `PI_*` env vars and the `pi` extension API are unchanged. Self-update is disabled: `axiom update` and `axiom update --self` exit 1, and the `pi update` text in docs/ does not apply.
 
 Axiom is a fork of [Pi](https://github.com/earendil-works/pi) (MIT; see [LICENSE](LICENSE)), a minimal, extensible agent harness. Customize it with [extensions](docs/extensions.md), [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), and [themes](docs/themes.md). Use it [interactively](docs/usage.md), in [print or JSON mode](docs/cli.md), over [RPC](docs/rpc.md), or through the [TypeScript SDK](docs/sdk.md). Report issues at https://github.com/Kiy-K/axiom/issues.
 
