@@ -52,16 +52,16 @@ export function runPiDataImport(args: string[], env: NodeJS.ProcessEnv = process
 	if (env[ENV_AGENT_DIR]) return { kind: "skipped", reason: "custom-agent-dir" };
 	const target = join(homedir(), CONFIG_DIR_NAME, "agent");
 	if (lstatOrUndefined(target)) return { kind: "skipped", reason: "target-exists" };
-	if (env.PI_CODING_AGENT_DIR) {
-		console.error(
-			`PI_CODING_AGENT_DIR is set, so Pi data is not imported. To import it, run before starting ${APP_NAME}: cp -a "$PI_CODING_AGENT_DIR" ${target}`,
-		);
-		return { kind: "skipped", reason: "pi-dir-env" };
-	}
 	const source = realpathOrUndefined(join(homedir(), ".pi", "agent"));
 	// An unlistable source counts as no-source: nothing is created, so the next start retries.
 	if (source === undefined || !hasPiData(source) || !canRead(source)) return { kind: "skipped", reason: "no-source" };
 	if (overlaps(source, resolveThroughExisting(target))) return { kind: "skipped", reason: "overlap" };
+	if (env.PI_CODING_AGENT_DIR) {
+		console.error(
+			`Pi data in ${source} is not imported because PI_CODING_AGENT_DIR is set. Unset it and start ${APP_NAME} again to import it.`,
+		);
+		return { kind: "skipped", reason: "pi-dir-env" };
+	}
 
 	removeStaleTemps(dirname(target));
 	console.error(`Importing Pi data from ${source} to ${target}; ${source} is not changed.`);
@@ -312,10 +312,11 @@ function copyFiltered(src: string, dst: string, rel: string, name: string, state
 	state.files++;
 }
 
-/** Keep explicit distrust only (D10); bytes that do not parse as an object are returned unchanged so they fail closed as in Pi. */
+/** Keep explicit distrust only (D10). Bytes that do not parse as an object, or hold a value other than true/false/null, are copied verbatim so Axiom fails as Pi does instead of guessing. */
 function filterTrust(bytes: Buffer): Buffer | undefined {
 	const data = parseObject(bytes.toString("utf8"));
 	if (data === undefined) return bytes;
+	if (!Object.values(data).every((value) => value === true || value === false || value === null)) return bytes;
 	const kept = Object.fromEntries(Object.entries(data).filter(([, value]) => value === false));
 	return Object.keys(kept).length === 0 ? undefined : Buffer.from(`${JSON.stringify(kept, null, 2)}\n`);
 }

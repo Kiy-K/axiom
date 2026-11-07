@@ -260,6 +260,15 @@ describe("importPiAgentDir", () => {
 		expect(readFileSync(join(root, "tc", "trust.json"), "utf8")).toBe("[1]");
 	});
 
+	it("copies trust.json verbatim when a value is not true, false or null (Pi fails closed on it)", () => {
+		const root = tempDir();
+		const src = join(root, "a");
+		writePiDir(src);
+		writeFileSync(join(src, "trust.json"), JSON.stringify({ "/a": "false", "/b": false }));
+		importPiAgentDir(src, join(root, "t"));
+		expect(readFileSync(join(root, "t", "trust.json"), "utf8")).toBe(JSON.stringify({ "/a": "false", "/b": false }));
+	});
+
 	posixOnly("preserves file and directory modes and mtimes, including read-only dirs", () => {
 		const root = tempDir();
 		const source = join(root, "pi");
@@ -415,7 +424,7 @@ describe("runPiDataImport", () => {
 		}
 	});
 
-	it("skips with one hint line when PI_CODING_AGENT_DIR is set", () => {
+	it("skips with one hint line when PI_CODING_AGENT_DIR is set and the import would otherwise run", () => {
 		writePiDir(legacy);
 		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 		expect(runPiDataImport([], { PI_CODING_AGENT_DIR: join(home, "elsewhere") })).toEqual({
@@ -423,7 +432,19 @@ describe("runPiDataImport", () => {
 			reason: "pi-dir-env",
 		});
 		expect(error).toHaveBeenCalledTimes(1);
+		const [hint] = error.mock.calls[0] as [string];
+		expect(hint).toContain("Unset it");
+		expect(hint).not.toContain("cp -a");
 		expect(existsSync(join(home, ".axiom"))).toBe(false);
+	});
+
+	it("prints no PI_CODING_AGENT_DIR hint when there is no Pi data to import", () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		expect(runPiDataImport([], { PI_CODING_AGENT_DIR: join(home, "elsewhere") })).toEqual({
+			kind: "skipped",
+			reason: "no-source",
+		});
+		expect(error).not.toHaveBeenCalled();
 	});
 
 	posixOnly("treats an unlistable Pi dir as no-source and creates nothing", () => {
