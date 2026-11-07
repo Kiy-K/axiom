@@ -8,20 +8,39 @@ import { access, readFile } from "fs/promises";
 import { splitBom } from "../../utils/text.ts";
 import { resolveToCwd } from "./path-utils.ts";
 
-export function detectLineEnding(content: string): "\r\n" | "\n" {
-	const crlfIdx = content.indexOf("\r\n");
-	const lfIdx = content.indexOf("\n");
-	if (lfIdx === -1) return "\n";
-	if (crlfIdx === -1) return "\n";
-	return crlfIdx < lfIdx ? "\r\n" : "\n";
-}
-
 export function normalizeToLF(text: string): string {
 	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-export function restoreLineEndings(text: string, ending: "\r\n" | "\n"): string {
-	return ending === "\r\n" ? text.replace(/\n/g, "\r\n") : text;
+/**
+ * Re-applies line endings to the LF-normalized text an edit produced. A line that survives the edit
+ * keeps the exact ending it had in `original`, so a mixed-ending file stays mixed. An added line takes
+ * the ending of the nearest kept line above it, or the file's first ending if there is none.
+ */
+export function restoreLineEndings(original: string, newNormalized: string): string {
+	const endings = original.match(/\r\n|\n|\r/g) ?? [];
+	const oldLines = normalizeToLF(original).split("\n");
+	const newLines = newNormalized.split("\n");
+	const lineEndings: (string | undefined)[] = [];
+	let oldIndex = 0;
+	for (const part of Diff.diffArrays(oldLines, newLines)) {
+		if (part.added) {
+			for (let k = 0; k < part.value.length; k++) lineEndings.push(undefined);
+			continue;
+		}
+		if (!part.removed) {
+			for (let k = 0; k < part.value.length; k++) lineEndings.push(endings[oldIndex + k]);
+		}
+		oldIndex += part.value.length;
+	}
+	let previous = endings[0] ?? "\n";
+	return newLines
+		.map((line, i) => {
+			if (i === newLines.length - 1) return line;
+			previous = lineEndings[i] ?? previous;
+			return line + previous;
+		})
+		.join("");
 }
 
 /**

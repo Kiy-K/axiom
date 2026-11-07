@@ -1714,4 +1714,40 @@ describe("edit tool CRLF handling", () => {
 		const content = readFileSync(testFile, "utf-8");
 		expect(content).toBe("\uFEFFfirst\r\nSECOND\r\nthird\r\nFOURTH\r\n");
 	});
+
+	it("keeps each line's own ending when the file starts LF and the rest are CRLF", async () => {
+		const testFile = join(testDir, "mixed-lf-first.txt");
+		writeFileSync(testFile, "first\nsecond\r\nthird\r\nfourth\r\n");
+
+		await editTool.execute("test-mixed-1", {
+			path: testFile,
+			edits: [{ oldText: "third\n", newText: "THIRD\n" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("first\nsecond\r\nTHIRD\r\nfourth\r\n");
+	});
+
+	it("keeps each line's own ending when the file starts CRLF and the rest are LF", async () => {
+		const testFile = join(testDir, "mixed-crlf-first.txt");
+		writeFileSync(testFile, "a\r\nb\nc\nd\n");
+
+		await editTool.execute("test-mixed-2", {
+			path: testFile,
+			edits: [{ oldText: "c\n", newText: "C\n" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("a\r\nb\nC\nd\n");
+	});
+
+	it("gives an inserted line the ending of the kept line above it in a mixed file", async () => {
+		const testFile = join(testDir, "mixed-insert.txt");
+		writeFileSync(testFile, "first\nsecond\r\nthird\r\n");
+
+		await editTool.execute("test-mixed-3", {
+			path: testFile,
+			edits: [{ oldText: "second\n", newText: "second\nnew\n" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("first\nsecond\r\nnew\r\nthird\r\n");
+	});
 });
