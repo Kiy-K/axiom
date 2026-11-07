@@ -72,7 +72,7 @@
 		"build": "bun run generate-models && bun run build:offline",
 		"build:offline": "bun run check:model-data && tsc -p tsconfig.build.json && node ../../scripts/package-files.mjs clean dist/providers/data && node ../../scripts/package-files.mjs copy src/providers/data dist/providers",
 		"test": "vitest --run",
-		"prepublishOnly": "npm run clean && npm run build"
+		"prepublishOnly": "bun run clean && bun run build"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.129.0",

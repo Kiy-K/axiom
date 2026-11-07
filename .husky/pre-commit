@@ -10,7 +10,7 @@ fi
 
 # Run the check script (formatting, linting, and type checking)
 echo "Running formatting, linting, and type checking..."
-npm run check
+bun run check
 if [ $? -ne 0 ]; then
   echo "❌ Checks failed. Please fix the errors before committing."
   exit 1
@@ -23,7 +23,7 @@ if [ -d apps/p2 ]; then
     case "$file" in
       apps/p2/*|packages/*|package.json|package-lock.json|tsconfig.json|tsconfig.base.json)
         echo "Checking apps/p2..."
-        npm --prefix apps/p2 run check
+        (cd apps/p2 && bun run check)
         if [ $? -ne 0 ]; then
           echo "❌ apps/p2 checks failed."
           exit 1
@@ -46,7 +46,7 @@ done
 
 if [ $RUN_BROWSER_SMOKE -eq 1 ]; then
   echo "Running browser smoke check..."
-  npm run check:browser-smoke
+  bun run check:browser-smoke
   if [ $? -ne 0 ]; then
     echo "❌ Browser smoke check failed."
     exit 1

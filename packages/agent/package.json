@@ -20,7 +20,7 @@
 		"clean": "node ../../scripts/package-files.mjs clean dist",
 		"build": "tsc -p tsconfig.build.json",
 		"test": "vitest --run",
-		"prepublishOnly": "npm run build"
+		"prepublishOnly": "bun run build"
 	},
 	"dependencies": {
 		"@earendil-works/pi-ai": "1.5.0",

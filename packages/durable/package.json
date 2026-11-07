@@ -125,7 +125,7 @@
 	"scripts": {
 		"clean": "node ../../scripts/package-files.mjs clean dist",
 		"build": "tsc -p tsconfig.build.json",
-		"test": "vitest --run && PI_DURABLE_DOCUMENT_RETENTION_MS=0 vitest --run && npm run test:store && npm run test:workers",
+		"test": "vitest --run && PI_DURABLE_DOCUMENT_RETENTION_MS=0 vitest --run && bun run test:store && bun run test:workers",
 		"test:store": "vitest --run --config vitest.store.config.ts",
 		"test:workers": "vitest --run --config test-workers/vitest.config.ts",
 		"bench:storage": "vitest bench --config vitest.benchmark.config.ts",
@@ -139,7 +139,7 @@
 		"bench:document-append": "node --conditions=source --experimental-strip-types test/document-append-bench.ts",
 		"bench:codemode": "node --conditions=source --experimental-strip-types test/codemode-bench.ts",
 		"bench:conversation-view": "node --conditions=source --experimental-strip-types --expose-gc test/conversation-view-bench.ts",
-		"prepublishOnly": "npm run clean && npm run build"
+		"prepublishOnly": "bun run clean && bun run build"
 	},
 	"keywords": [
 		"durable-execution",

@@ -81,7 +81,7 @@ for name in CI GITHUB_ACTIONS; do
 done
 
 # Build the pi-env daemon outside the isolated environment: cargo needs the caller's HOME and toolchain. CI does the same.
-npm run build:daemon --workspace packages/env
+bun run --filter './packages/env' build:daemon
 
 echo "Running tests without API keys in isolated home: $test_root/home"
-env -i "${test_env[@]}" npm test
+env -i "${test_env[@]}" bun run test

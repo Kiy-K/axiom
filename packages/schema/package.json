@@ -29,7 +29,7 @@
 		"build": "tsc -p tsconfig.build.json",
 		"test": "vitest --run",
 		"bench": "node --expose-gc test/bench/all.ts",
-		"prepublishOnly": "npm run clean && npm run build"
+		"prepublishOnly": "bun run clean && bun run build"
 	},
 	"keywords": [
 		"json-schema",
