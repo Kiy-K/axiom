@@ -87,7 +87,7 @@ Reporting (stderr only; never stdout):
 - **I4:** file and dir modes and mtimes are preserved (`auth.json` 0600; `bin/*` executable; session mtimes keep `SessionManager.list` order).
 - **I5:** stdout is byte-identical with or without an import.
 - **I6:** an import runs at most once per target.
-- **I7:** no `true`/`null` trust entry and no `type:"oauth"` credential reaches the target. Exception: a `trust.json` or `auth.json` that Axiom cannot read is copied verbatim (D10, D14). Axiom refuses to apply such a trust file (`trust-manager.ts:124-127`, fail closed), so no trust decision is taken from its `true` entries.
+- **I7:** no `true`/`null` trust entry and no `type:"oauth"` credential reaches the target. Exception: a `trust.json` or `auth.json` that Axiom cannot read is copied verbatim (D10, D14). Axiom refuses to apply such a trust file (`trust-manager.ts:124-127`, fail closed), so no trust decision is taken from its `true` entries. Known effect, accepted: Axiom then refuses to start (`Invalid trust store …: value for "<key>" must be true, false, or null`) until the user edits that `trust.json`. Observed in a smoke run of the built CLI.
 - **I8:** no import when `AXIOM_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR` is set, or for `--version`.
 - **I9:** a non-official build makes no phone-home request (Terms).
 
