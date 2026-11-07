@@ -111,12 +111,13 @@ describe("SQLite telemetry buffering and aggregation", () => {
 
 	it("stores span times in whole microseconds of telemetryNow, read back as milliseconds", async () => {
 		vi.spyOn(Date, "now").mockReturnValue(20_001);
-		const clock = vi.spyOn(performance, "now").mockReturnValue(500);
+		// Far from the real clock so telemetryNow re-anchors; a stale anchor from the test above shifts times under load.
+		const clock = vi.spyOn(performance, "now").mockReturnValue(1_000_000_000);
 		await using f = await fixture();
 		await f.telemetry.startSpan({ name: "root" }, async (span) => {
-			clock.mockReturnValue(500.125);
+			clock.mockReturnValue(1_000_000_000.125);
 			await span.startSpan({ name: "child" }, () => {
-				clock.mockReturnValue(500.5);
+				clock.mockReturnValue(1_000_000_000.5);
 				span.addEvent("half", {});
 			});
 		});
