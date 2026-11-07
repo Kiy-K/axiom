@@ -21,7 +21,6 @@ Filter fan-outs use `bun run --filter './packages/*'`. The `./` prefix is requir
 
 | Where | Command | Why it stays on npm |
 |---|---|---|
-| root `eval` | `npm run eval --workspace=@earendil-works/pi-evals --` | Not ported. Argument passing through `bun run --filter` was not verified. |
 | root `version:patch/minor/major` | `npm version`, `npm install --package-lock-only --ignore-scripts`, then `bun install --lockfile-only --ignore-scripts` | Writes `package-lock.json`, which stays (see below). The Bun step refreshes `bun.lock`. |
 | root `version:set` | `npm version --workspaces --no-workspaces-update` | Not ported. |
 | `prepublishOnly`, `publish`, `publish:dry` (root) | `bun run` for the chain; `node scripts/publish.mjs` for the publish itself | The publish step uses npm and npm trusted publishing. |
@@ -31,7 +30,6 @@ Filter fan-outs use `bun run --filter './packages/*'`. The `./` prefix is requir
 | `scripts/release.mjs` | `npm version`, `npm install --package-lock-only --ignore-scripts`, `npm ci --ignore-scripts` | The version bump writes `package-lock.json`. `npm ci` builds the npm layout the release checks use. |
 | `scripts/package-artifacts.mjs`, `scripts/preview-packages.mjs`, `scripts/publish.mjs` | `npm pack --json`, `npm view`, `npm publish` | Packing and registry queries are npm features. |
 | `scripts/local-package-install.mjs` | `npm install` of the packed tarballs into a consumer directory | The consumer smoke test installs as an npm user would. |
-| `scripts/profile-coding-agent-node.mjs` | `npm run --workspace <pkg> build` in sequence | Not ported. `bun run --filter` does not promise the same build order; not verified. |
 
 Messages that scripts print (for example "Run: npm run install-lock:coding-agent") are not invocations and are not listed.
 

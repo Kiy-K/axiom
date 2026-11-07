@@ -20,11 +20,10 @@ function printHelp() {
 	console.log(`Usage:
   node scripts/profile-coding-agent-node.mjs [options]
 
-Profiles coding-agent startup with the runtime selected below:
-- npm run profile:tui     -> builds packages/coding-agent and profiles TUI startup with Node
-- npm run profile:rpc     -> builds packages/coding-agent and profiles RPC startup with Node
+Profiles coding-agent startup. The runtime follows the runner: bun run profile:tui profiles the TUI with Bun.
 - bun run profile:tui     -> profiles TUI startup from src/cli.ts directly with Bun
 - bun run profile:rpc     -> profiles RPC startup from src/cli.ts directly with Bun
+- bun run profile:tui -- --runtime node  -> builds packages/coding-agent and profiles TUI startup with Node
 
 Options:
   --mode <name>          tui or rpc (default: tui)
@@ -292,30 +291,21 @@ async function runBuild(bundle) {
 	);
 	const startedAt = performance.now();
 	const commands = [
-		{
-			label: "Dependency build",
-			args: [
-				"run",
-				"build",
-				"--workspace",
-				"packages/tui",
-				"--workspace",
-				"packages/telemetry",
-				"--workspace",
-				"packages/ai",
-				"--workspace",
-				"packages/agent",
-			],
-		},
+		...["telemetry", "schema", "chord", "tui", "codemode", "mcp", "ai", "durable", "env", "agent"].map((name) => ({
+			label: `Dependency build (packages/${name})`,
+			cwd: join(repoRoot, "packages", name),
+			script: "build",
+		})),
 		{
 			label: "Coding-agent build",
-			args: ["run", bundle ? "build" : "build:unbundled", "--workspace", "packages/coding-agent"],
+			cwd: packageDir,
+			script: bundle ? "build" : "build:unbundled",
 		},
 	];
 
 	for (const command of commands) {
-		const child = spawn("npm", command.args, {
-			cwd: repoRoot,
+		const child = spawn("bun", ["run", command.script], {
+			cwd: command.cwd,
 			env: process.env,
 			stdio: ["ignore", "pipe", "pipe"],
 			shell: process.platform === "win32",
