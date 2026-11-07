@@ -22,23 +22,29 @@ Install Termux from [GitHub or F-Droid](https://github.com/termux/termux-app#ins
    pkg install nodejs git
    ```
 
-3. Install Pi:
+3. Install Bun 1.4.4, then Axiom from source. Axiom and Bun are not verified on Termux:
 
    ```bash
-   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+   git clone https://github.com/Kiy-K/axiom
+   cd axiom
+   bun install --ignore-scripts
+   bun run build
+   alias axiom="bun $PWD/packages/coding-agent/dist/bundle/cli.js"
    ```
+
+   Add the `alias` line to your shell profile so it persists.
 
 4. Verify the installation:
 
    ```bash
-   pi --version
+   axiom --version
    ```
 
 5. Open the folder you want to work in and start Pi:
 
    ```bash
    cd /path/to/working-folder
-   pi
+   axiom
    ```
 
 Continue with the main [Quickstart](quickstart.md#3-choose-a-model) to connect a model and run your first task.
@@ -105,13 +111,13 @@ Then run the clipboard verification commands above outside Pi. If they fail ther
 
 Run `termux-setup-storage`, approve the Android permission request, and retry the path under `~/storage/` or `/storage/emulated/0`.
 
-### Pi is not found after installation
+### Axiom is not found after installation
 
-Open a new Termux shell and run:
+Open a new Termux shell, then check the alias and the built bundle:
 
 ```bash
-npm prefix -g
-command -v pi
+type axiom
+ls ~/axiom/packages/coding-agent/dist/bundle/cli.js
 ```
 
-Confirm that the global npm binary directory is on `PATH`, then reinstall Pi if the package is missing.
+If the alias is missing, add it to your shell profile. If the bundle is missing, run `bun run build` in the checkout again.

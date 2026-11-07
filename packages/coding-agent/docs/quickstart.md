@@ -6,36 +6,20 @@ For native Windows setup, read [Windows Setup](windows.md). For Android, read [T
 
 ## 1. Install Pi
 
-Install Pi with the installer on macOS, Linux, or Windows:
-
-```bash tab="macOS / Linux"
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-```powershell tab="Windows"
-powershell -c "irm https://pi.dev/install.ps1 | iex"
-```
-
-Both installers pin all dependencies and update Pi with `pi update`. Alternatively, install Pi from npm, which does not pin transitive dependencies. This requires Node.js 22.19 or newer:
+Axiom has no release archive or npm package yet. Install it from source with Bun (tested with 1.4.4). Node.js 22.19 or newer must also be on `PATH`, because the build scripts call `node`:
 
 ```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+git clone https://github.com/Kiy-K/axiom
+cd axiom
+bun install --ignore-scripts
+bun run build
+alias axiom="bun $PWD/packages/coding-agent/dist/bundle/cli.js"
 ```
-
-Pi does not require dependency lifecycle scripts for a normal npm installation.
-
-With Nix on macOS or Linux, install the latest release from Pi's flake. Nix builds Pi from source:
-
-```bash
-nix profile add github:earendil-works/pi/stable
-```
-
-Older Nix versions use `nix profile install` instead. Update with `nix profile upgrade pi`; `pi update` cannot update a Nix installation. To pin a release, use a tag such as `github:earendil-works/pi/v1.0.0`.
 
 Verify the installation:
 
 ```bash
-pi --version
+axiom --version
 ```
 
 ## 2. Start Pi
@@ -119,22 +103,10 @@ Start with the least powerful mechanism that meets your need:
 
 ## Uninstall Pi
 
-If you installed Pi with npm, run:
+Remove the `alias axiom` line from your shell profile, then delete the checkout:
 
 ```bash
-npm uninstall -g @earendil-works/pi-coding-agent
+rm -rf /path/to/axiom
 ```
 
-If you used the installer, run it again and choose **Uninstall Pi**:
-
-```bash
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-If you installed Pi with Nix, run:
-
-```bash
-nix profile remove pi
-```
-
-None of these methods removes configuration, credentials, sessions, or installed Pi packages from `~/.pi/agent/`.
+None of these steps removes configuration, credentials, or sessions from `~/.axiom/agent/`. Delete that directory to remove them.

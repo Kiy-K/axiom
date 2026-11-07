@@ -270,34 +270,29 @@ Add `--local` or `-l` to `install`, `remove`, `uninstall`, or `config` to use pr
 
 ### Update Pi or packages
 
-Running `pi update` without a target updates Pi itself.
+Axiom does not update itself. Self-update is disabled until Axiom has its own release build (see `docs/axiom/rebrand.md` in the repository, section 7). `pi update`, `pi update --self`, `pi update self`, and `pi update pi` exit 1 without fetching anything. Update Axiom by pulling the checkout and rebuilding:
+
+```sh
+git pull && bun install --ignore-scripts && bun run build
+```
+
+Package and model catalog updates still work:
 
 | Task | Command |
 |---|---|
-| Update Pi | `pi update` |
 | Update all installed packages | `pi update --extensions` |
 | Update one installed package | `pi update <source>` |
 | Refresh model catalogs | `pi update --models` |
-| Update Pi and all installed packages | `pi update --all` |
 
-Add `--force` to reinstall Pi when the selected update includes Pi.
-
-`pi update` cannot update Pi when another package manager provides it, such as Nix. Update Pi with that package manager, for example `nix profile upgrade pi`. Package and model catalog updates still work.
+`pi update --all` updates packages first, then exits 1 for Axiom itself.
 
 #### Custom update command
 
-If a wrapper or another package manager provides Pi, set `PI_SELF_UPDATE_COMMAND` so `pi update` runs its update command:
-
-```sh
-export PI_SELF_UPDATE_COMMAND="mise use -g npm:{packageName}@{version}"
-```
-
-`pi update` runs it only when pi.dev has a newer release, replacing `{packageName}`, `{version}`, and `{installSpec}` (`{packageName}@{version}`) with that release. The value is split on spaces. For arguments with spaces, use the `selfUpdateCommand` setting in `~/.pi/agent/settings.json` instead, an argv array such as `["nix", "profile", "upgrade", "pi"]`.
+Disabled in Axiom: `PI_SELF_UPDATE_COMMAND` and the `selfUpdateCommand` setting are ignored, because self-update does not run.
 
 ### Aliases and command options
 
 - `pi uninstall <source>` is an alias for `pi remove <source>`.
-- `pi update --self`, `pi update self`, and `pi update pi` are aliases for `pi update`.
 - `pi update --extension <source>` is an alias for `pi update <source>`.
 - `-a`, `--approve` trusts project-local files for one command. `-na`, `--no-approve` ignores trust-gated project-local files.
 - Append `-h` or `--help` to a command for its exact usage and option constraints.
