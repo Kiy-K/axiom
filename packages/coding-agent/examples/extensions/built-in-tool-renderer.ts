@@ -28,7 +28,7 @@
 import type { BashToolDetails, EditToolDetails, ExtensionAPI, ReadToolDetails } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
-	createEditToolDefinition,
+	createHashlineEditToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -38,7 +38,7 @@ export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
 
 	// --- Read tool: show path and line count ---
-	const originalRead = createReadToolDefinition(cwd);
+	const originalRead = createReadToolDefinition(cwd, { hashline: true });
 	pi.registerTool({
 		...originalRead,
 
@@ -142,7 +142,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- Edit tool: show path and diff stats ---
-	const originalEdit = createEditToolDefinition(cwd);
+	const originalEdit = createHashlineEditToolDefinition(cwd);
 	pi.registerTool({
 		...originalEdit,
 

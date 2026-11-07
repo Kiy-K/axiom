@@ -34,6 +34,7 @@ export {
 	type GrepToolInput,
 	type GrepToolOptions,
 } from "./grep.ts";
+export { createHashlineEditToolDefinition } from "./hashline-edit.ts";
 export {
 	createLsTool,
 	createLsToolDefinition,

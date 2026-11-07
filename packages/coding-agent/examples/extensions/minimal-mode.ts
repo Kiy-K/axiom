@@ -19,9 +19,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
-	createEditToolDefinition,
 	createFindToolDefinition,
 	createGrepToolDefinition,
+	createHashlineEditToolDefinition,
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
@@ -43,9 +43,9 @@ function shortenPath(path: string): string {
 
 function createBuiltInTools(cwd: string) {
 	return {
-		read: createReadToolDefinition(cwd),
+		read: createReadToolDefinition(cwd, { hashline: true }),
 		bash: createBashToolDefinition(cwd),
-		edit: createEditToolDefinition(cwd),
+		edit: createHashlineEditToolDefinition(cwd),
 		write: createWriteToolDefinition(cwd),
 		find: createFindToolDefinition(cwd),
 		grep: createGrepToolDefinition(cwd),

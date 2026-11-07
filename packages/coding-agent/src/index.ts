@@ -349,6 +349,7 @@ export {
 	createEditToolDefinition,
 	createFindToolDefinition,
 	createGrepToolDefinition,
+	createHashlineEditToolDefinition,
 	createLocalBashOperations,
 	createLocalPowerShellOperations,
 	createLsToolDefinition,
