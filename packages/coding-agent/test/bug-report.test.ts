@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import type * as ConfigModule from "../src/config.ts";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import { redactJsonValue, redactUrl } from "../src/core/bug-report.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
@@ -18,8 +19,17 @@ import { getEditorTheme, initTheme } from "../src/modes/interactive/theme/theme.
 
 beforeAll(() => initTheme("dark"));
 
+const dist = vi.hoisted(() => ({ official: false }));
+vi.mock("../src/config.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof ConfigModule>()),
+	get IS_OFFICIAL_DISTRIBUTION() {
+		return dist.official;
+	},
+}));
+
 describe("bug report prompt", () => {
-	it("preserves line breaks in pasted descriptions", async () => {
+	it.each([true, false])("preserves line breaks in pasted descriptions (official build: %s)", async (official) => {
+		dist.official = official;
 		const previousKeybindings = getKeybindings();
 		const keybindings = new KeybindingsManager();
 		setKeybindings(keybindings);
@@ -74,9 +84,9 @@ describe("bug report prompt", () => {
 			expect(deliveryLines.some((line) => line.includes("Description: Request failed"))).toBe(true);
 			expect(deliveryLines.some((line) => line.includes("↳ pi exiting..."))).toBe(true);
 			expect(deliveryLines.some((line) => line.includes("stack trace"))).toBe(true);
-			// This build is a fork: reports are only exported, never uploaded to the Pi developers.
+			// Only the official build offers upload; a fork exports only, because its reports never leave the fork.
 			expect(deliveryLines.some((line) => line.includes("Export as Zip"))).toBe(true);
-			expect(deliveryLines.some((line) => line.includes("Upload Report"))).toBe(false);
+			expect(deliveryLines.some((line) => line.includes("Upload Report"))).toBe(official);
 
 			deliverySelector.handleInput("j");
 			deliverySelector.handleInput("j");

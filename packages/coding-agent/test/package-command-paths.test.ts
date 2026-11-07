@@ -746,6 +746,33 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		expect(process.exitCode).toBe(1);
 	});
 
+	it.each([
+		{ args: ["update"], exitCode: 1, disabledMessage: true },
+		{ args: ["update", "--all"], exitCode: 1, disabledMessage: true },
+		{ args: ["update", "--extensions"], exitCode: undefined, disabledMessage: false },
+		{ args: ["update", "--models"], exitCode: undefined, disabledMessage: false },
+	])("fork $args never runs a configured self-update command", async ({ args, exitCode, disabledMessage }) => {
+		dist.official = false;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json({ packageName: PACKAGE_NAME, version: "999.0.0" })),
+		);
+		const { scriptPath, recordPath } = prepareSelfUpdateCommand("999.0.0");
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ selfUpdateCommand: [originalExecPath, scriptPath, "{packageName}"] }),
+		);
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await expect(runPackageCommandDirectly(args)).resolves.toBeUndefined();
+
+		expect(existsSync(recordPath)).toBe(false);
+		const stderr = errorSpy.mock.calls.map(([message]) => String(message)).join("\n");
+		expect(stderr.includes("Self-update is disabled")).toBe(disabledMessage);
+		expect(process.exitCode).toBe(exitCode);
+	});
+
 	it("retries a transient self-update version check", async () => {
 		const previousSkipVersionCheck = process.env.PI_SKIP_VERSION_CHECK;
 		delete process.env.PI_SKIP_VERSION_CHECK;
