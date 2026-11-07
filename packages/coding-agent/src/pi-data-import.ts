@@ -53,17 +53,18 @@ export function runPiDataImport(args: string[], env: NodeJS.ProcessEnv = process
 	const target = join(homedir(), CONFIG_DIR_NAME, "agent");
 	if (lstatOrUndefined(target)) return { kind: "skipped", reason: "target-exists" };
 	if (env.PI_CODING_AGENT_DIR) {
-		process.stderr.write(
-			`PI_CODING_AGENT_DIR is set, so Pi data is not imported. To import it, run before starting ${APP_NAME}: cp -a "$PI_CODING_AGENT_DIR" ${target}\n`,
+		console.error(
+			`PI_CODING_AGENT_DIR is set, so Pi data is not imported. To import it, run before starting ${APP_NAME}: cp -a "$PI_CODING_AGENT_DIR" ${target}`,
 		);
 		return { kind: "skipped", reason: "pi-dir-env" };
 	}
 	const source = realpathOrUndefined(join(homedir(), ".pi", "agent"));
-	if (source === undefined || !hasPiData(source)) return { kind: "skipped", reason: "no-source" };
+	// An unlistable source counts as no-source: nothing is created, so the next start retries.
+	if (source === undefined || !hasPiData(source) || !canRead(source)) return { kind: "skipped", reason: "no-source" };
 	if (overlaps(source, resolveThroughExisting(target))) return { kind: "skipped", reason: "overlap" };
 
 	removeStaleTemps(dirname(target));
-	process.stderr.write(`Importing Pi data from ${source} to ${target}; ${source} is not changed.\n`);
+	console.error(`Importing Pi data from ${source} to ${target}; ${source} is not changed.`);
 	const result = importPiAgentDir(source, target);
 	report(result, source, target);
 	return result;
@@ -128,8 +129,8 @@ function importerIsGone(pid: number): boolean {
 
 function report(result: PiDataImportResult, source: string, target: string): void {
 	if (result.kind === "failed") {
-		process.stderr.write(
-			`Pi data import failed: ${result.error}. Nothing in ${source} was changed. ${APP_NAME} continues with a new empty ${target}; to retry, quit ${APP_NAME}, delete ${target} (this deletes what ${APP_NAME} saved there) and start ${APP_NAME}.\n`,
+		console.error(
+			`Pi data import failed: ${result.error}. Nothing in ${source} was changed. ${APP_NAME} continues with a new empty ${target}; to retry, quit ${APP_NAME}, delete ${target} (this deletes what ${APP_NAME} saved there) and start ${APP_NAME}.`,
 		);
 		return;
 	}
@@ -146,12 +147,12 @@ function report(result: PiDataImportResult, source: string, target: string): voi
 	if (result.skipped.length > MAX_REPORTED_SKIPS) {
 		lines.push(`  … and ${result.skipped.length - MAX_REPORTED_SKIPS} more`);
 	}
-	process.stderr.write(`${lines.join("\n")}\n`);
+	console.error(lines.join("\n"));
 }
 
 const MAX_REPORTED_SKIPS = 20;
 
-type WalkState = { root: string; dstRoot: string; files: number; skipped: PiDataImportSkip[]; droppedOAuth: string[] };
+type WalkState = { root: string; target: string; files: number; skipped: PiDataImportSkip[]; droppedOAuth: string[] };
 
 /** Copy Pi agent dir `source` (already realpath'd) to absent `target` via a temp dir and one rename; never writes under `source`. */
 export function importPiAgentDir(source: string, target: string): PiDataImportResult {
@@ -159,7 +160,7 @@ export function importPiAgentDir(source: string, target: string): PiDataImportRe
 	try {
 		mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
 		temp = mkdtempSync(join(dirname(target), `${TEMP_PREFIX}${process.pid}-`));
-		const state: WalkState = { root: source, dstRoot: temp, files: 0, skipped: [], droppedOAuth: [] };
+		const state: WalkState = { root: source, target, files: 0, skipped: [], droppedOAuth: [] };
 		copyChildren(source, temp, "", readdirSync(source), state);
 		applyMetadata(temp, statSync(source));
 		try {
@@ -194,6 +195,9 @@ const TOP_LEVEL_EXCLUDES = new Set([
 	"mcp-auth.json",
 ]);
 
+// Top-level files this import filters rather than copies verbatim (D10, D14).
+const TOP_LEVEL_FILTERED: Record<string, true> = { "trust.json": true, "auth.json": true };
+
 function copyChildren(srcDir: string, dstDir: string, relDir: string, names: string[], state: WalkState): void {
 	for (const name of [...names].sort()) {
 		const rel = relDir === "" ? name : `${relDir}/${name}`;
@@ -201,7 +205,7 @@ function copyChildren(srcDir: string, dstDir: string, relDir: string, names: str
 		const dst = join(dstDir, name);
 		if (relDir === "") {
 			if (TOP_LEVEL_EXCLUDES.has(name) || name.endsWith(".lock")) continue;
-			if (name === "trust.json" || name === "auth.json") {
+			if (TOP_LEVEL_FILTERED[name] === true) {
 				copyFiltered(src, dst, rel, name, state);
 				continue;
 			}
@@ -242,13 +246,28 @@ function copyEntry(src: string, dst: string, rel: string, state: WalkState): voi
 	}
 }
 
-/** Keep relative links that stay inside the tree; copy the content of other file links; skip the rest. */
+/** Keep relative links that stay inside the final target tree; copy the content of other file links; skip the rest. */
 function copySymlink(src: string, dst: string, rel: string, state: WalkState): void {
 	const link = readlinkSync(src);
 	const real = realpathOrUndefined(src);
+	const topLevelName = real !== undefined && dirname(real) === state.root ? basename(real) : undefined;
+	// Excluded top-level files are never copied, so a link must not copy their content either (D10, D14).
+	if (
+		topLevelName !== undefined &&
+		(TOP_LEVEL_EXCLUDES.has(topLevelName) ||
+			topLevelName.endsWith(".lock") ||
+			TOP_LEVEL_FILTERED[topLevelName] === true)
+	) {
+		state.skipped.push({ path: rel, reason: "symlink" });
+		return;
+	}
+	// Checked against the final target: the copy is renamed into place, so a link may leave the tree and re-enter it by name.
 	const keepsInside =
-		real !== undefined && isInside(real, state.root) && isInside(resolve(dirname(dst), link), state.dstRoot);
-	if (!isAbsolute(link) && keepsInside) {
+		real !== undefined &&
+		isInside(real, state.root) &&
+		!isAbsolute(link) &&
+		isInside(resolve(state.target, dirname(rel), link), state.target);
+	if (keepsInside) {
 		symlinkSync(link, dst, statOrUndefined(real)?.isDirectory() ? "dir" : "file");
 		return;
 	}
@@ -285,26 +304,26 @@ function copyFiltered(src: string, dst: string, rel: string, name: string, state
 		state.skipped.push({ path: rel, reason: "unreadable" });
 		return;
 	}
-	const text = readFileSync(src, "utf8");
-	const filtered = name === "trust.json" ? filterTrust(text) : filterAuth(text, state.droppedOAuth);
+	const bytes = readFileSync(src);
+	const filtered = name === "trust.json" ? filterTrust(bytes) : filterAuth(bytes, state.droppedOAuth);
 	if (filtered === undefined) return;
 	writeFileSync(dst, filtered, { flag: "wx", mode: stats.mode & 0o7777 });
 	applyMetadata(dst, stats);
 	state.files++;
 }
 
-/** Keep explicit distrust only (D10); unparsable files stay verbatim so they fail closed as in Pi. */
-function filterTrust(text: string): string | undefined {
-	const data = parseObject(text);
-	if (data === undefined) return text;
+/** Keep explicit distrust only (D10); bytes that do not parse as an object are returned unchanged so they fail closed as in Pi. */
+function filterTrust(bytes: Buffer): Buffer | undefined {
+	const data = parseObject(bytes.toString("utf8"));
+	if (data === undefined) return bytes;
 	const kept = Object.fromEntries(Object.entries(data).filter(([, value]) => value === false));
-	return Object.keys(kept).length === 0 ? undefined : `${JSON.stringify(kept, null, 2)}\n`;
+	return Object.keys(kept).length === 0 ? undefined : Buffer.from(`${JSON.stringify(kept, null, 2)}\n`);
 }
 
 /** Drop OAuth credentials so the two apps never share a refresh token (D14). */
-function filterAuth(text: string, droppedOAuth: string[]): string | undefined {
-	const data = parseObject(text);
-	if (data === undefined) return text;
+function filterAuth(bytes: Buffer, droppedOAuth: string[]): Buffer | undefined {
+	const data = parseObject(bytes.toString("utf8"));
+	if (data === undefined) return bytes;
 	const kept: Record<string, unknown> = {};
 	for (const [provider, credential] of Object.entries(data)) {
 		if (
@@ -318,7 +337,7 @@ function filterAuth(text: string, droppedOAuth: string[]): string | undefined {
 			kept[provider] = credential;
 		}
 	}
-	return Object.keys(kept).length === 0 ? undefined : `${JSON.stringify(kept, null, 2)}\n`;
+	return Object.keys(kept).length === 0 ? undefined : Buffer.from(`${JSON.stringify(kept, null, 2)}\n`);
 }
 
 // Trust boundary: file content written by another program.

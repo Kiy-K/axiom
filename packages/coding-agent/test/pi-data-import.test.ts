@@ -132,6 +132,53 @@ describe("importPiAgentDir", () => {
 		expect(readFileSync(join(target, "sub", "esc.json"), "utf8")).toBe('{"providers":{}}\n');
 	});
 
+	it("keeps a relative link that leaves the tree and re-enters it by name", () => {
+		const root = tempDir();
+		const source = join(root, "pi", "agent");
+		const target = join(root, "axiom", "agent");
+		writePiDir(source);
+		mkdirSync(join(source, "ext"));
+		symlinkSync("../../agent/settings.json", join(source, "ext", "settings-link.json"));
+
+		expect(importPiAgentDir(source, target)).toMatchObject({ kind: "imported", skipped: [] });
+		expect(readlinkSync(join(target, "ext", "settings-link.json"))).toBe("../../agent/settings.json");
+		expect(readFileSync(join(target, "ext", "settings-link.json"), "utf8")).toBe('{"theme":"dark"}\n');
+	});
+
+	it("does not copy auth.json or mcp-auth.json through an absolute link", () => {
+		const root = tempDir();
+		const source = join(root, "pi");
+		const target = join(root, "axiom", "agent");
+		writePiDir(source);
+		writeFileSync(join(source, "auth.json"), '{"a":{"type":"oauth","access":"A","refresh":"R","expires":1}}\n');
+		writeFileSync(join(source, "mcp-auth.json"), '{"tok":1}\n');
+		symlinkSync(join(source, "auth.json"), join(source, "auth.bak"));
+		symlinkSync(join(source, "mcp-auth.json"), join(source, "mcp-link"));
+
+		expect(importPiAgentDir(source, target)).toMatchObject({
+			kind: "imported",
+			skipped: [
+				{ path: "auth.bak", reason: "symlink" },
+				{ path: "mcp-link", reason: "symlink" },
+			],
+		});
+		expect(existsSync(join(target, "auth.json"))).toBe(false);
+		expect(existsSync(join(target, "auth.bak"))).toBe(false);
+		expect(existsSync(join(target, "mcp-link"))).toBe(false);
+	});
+
+	it("copies a non-JSON auth.json byte for byte, including invalid UTF-8", () => {
+		const root = tempDir();
+		const source = join(root, "pi");
+		const target = join(root, "axiom", "agent");
+		writePiDir(source);
+		const bytes = Buffer.from([0x7b, 0x22, 0x6b, 0x22, 0x3a, 0xff, 0x7d]); // {"k":<0xff>}
+		writeFileSync(join(source, "auth.json"), bytes);
+
+		expect(importPiAgentDir(source, target)).toMatchObject({ kind: "imported" });
+		expect(readFileSync(join(target, "auth.json"))).toEqual(bytes);
+	});
+
 	posixOnly("skips a child of a readable but not searchable dir as unreadable and imports the rest", () => {
 		const root = tempDir();
 		const source = join(root, "pi");
@@ -370,13 +417,32 @@ describe("runPiDataImport", () => {
 
 	it("skips with one hint line when PI_CODING_AGENT_DIR is set", () => {
 		writePiDir(legacy);
-		const write = vi.mocked(process.stderr.write);
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 		expect(runPiDataImport([], { PI_CODING_AGENT_DIR: join(home, "elsewhere") })).toEqual({
 			kind: "skipped",
 			reason: "pi-dir-env",
 		});
-		expect(write).toHaveBeenCalledTimes(1);
+		expect(error).toHaveBeenCalledTimes(1);
 		expect(existsSync(join(home, ".axiom"))).toBe(false);
+	});
+
+	posixOnly("treats an unlistable Pi dir as no-source and creates nothing", () => {
+		writePiDir(legacy);
+		chmodSync(legacy, 0o100);
+		try {
+			expect(runPiDataImport([], {})).toEqual({ kind: "skipped", reason: "no-source" });
+			expect(existsSync(join(home, ".axiom"))).toBe(false);
+		} finally {
+			chmodSync(legacy, 0o700);
+		}
+	});
+
+	it("does not fail the import when stderr rejects writes", () => {
+		writePiDir(legacy);
+		vi.mocked(process.stderr.write).mockImplementation(() => {
+			throw Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+		});
+		expect(runPiDataImport([], {})).toMatchObject({ kind: "imported", target });
 	});
 
 	it("requires a Pi data marker in the legacy dir", () => {
