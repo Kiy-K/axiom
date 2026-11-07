@@ -433,7 +433,7 @@ describe("runPiDataImport", () => {
 		});
 		expect(error).toHaveBeenCalledTimes(1);
 		const [hint] = error.mock.calls[0] as [string];
-		expect(hint).toContain("Unset it");
+		expect(hint).toContain("unset PI_CODING_AGENT_DIR before");
 		expect(hint).not.toContain("cp -a");
 		expect(existsSync(join(home, ".axiom"))).toBe(false);
 	});

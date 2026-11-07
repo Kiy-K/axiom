@@ -58,7 +58,7 @@ export function runPiDataImport(args: string[], env: NodeJS.ProcessEnv = process
 	if (overlaps(source, resolveThroughExisting(target))) return { kind: "skipped", reason: "overlap" };
 	if (env.PI_CODING_AGENT_DIR) {
 		console.error(
-			`Pi data in ${source} is not imported because PI_CODING_AGENT_DIR is set. Unset it and start ${APP_NAME} again to import it.`,
+			`Pi data in ${source} is not imported because PI_CODING_AGENT_DIR is set. To import it, unset PI_CODING_AGENT_DIR before ${APP_NAME}'s first start: the import runs only while ${target} does not exist.`,
 		);
 		return { kind: "skipped", reason: "pi-dir-env" };
 	}
