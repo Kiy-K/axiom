@@ -31,6 +31,7 @@
 
 - Fixed the Linux process helper remaining blocked on a cleanup confirmation when its output pipe is full. Cleanup that cannot be confirmed still retains its crash record where available.
 - Fixed a stop or timeout hanging when the native process helper never reported its spawn: the helper is now killed 5 seconds after the request.
+- Fixed commands running unowned after a terminal hangup, Ctrl+C or a signal to Axiom's process group: the native process helper now survives SIGHUP, SIGINT and SIGTERM and ends its command when Axiom disconnects.
 - Fixed finished shell commands keeping a helper process and three pipes each for the whole session where the kernel cannot prove a process group empty (before Linux 6.9, macOS, Android). The oldest finished groups beyond 16 are now killed and released.
 
 - Fixed the replace `edit` tool rewriting line endings on untouched lines of a mixed-ending file: each line keeps its own `\r\n` or `\n`, and an added line takes its neighbour's ending. Before, the first line's ending was applied to the whole file.

@@ -128,6 +128,16 @@ mod platform {
         #[cfg(not(target_os = "linux"))]
         std::process::exit(1)
     }
+    extern "C" fn keep_running(_: libc::c_int) {}
+    /// The helper shares its owner's process group, so a terminal hangup or Ctrl+C reaches it with the owner.
+    /// Dying on those signals would leave the setsid command running with nobody to stop it; the helper's
+    /// lifetime is stdin instead (EOF kills the group). A handler, not SIG_IGN, because handlers reset on exec.
+    pub fn survive_group_signals() {
+        for signal in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM] {
+            // SAFETY: the handler is empty, so it is async-signal-safe.
+            unsafe { libc::signal(signal, keep_running as *const () as libc::sighandler_t) };
+        }
+    }
     pub fn configure(command: &mut Command) {
         // SAFETY: setsid is async-signal-safe and runs before exec.
         unsafe { command.pre_exec(|| if libc::setsid() < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }); }
@@ -337,6 +347,8 @@ fn run(output: &Output) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
+    #[cfg(unix)]
+    platform::survive_group_signals();
     let output = Arc::new(Out { stdout: Mutex::new(io::stdout()), broken: AtomicBool::new(false), stdout_done: AtomicBool::new(false), stderr_done: AtomicBool::new(false) });
     if let Err(error) = run(&output) {
         let _ = emit(&output, json!({"type":"error","message":error.to_string()}));

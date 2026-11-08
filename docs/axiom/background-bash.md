@@ -10,7 +10,7 @@ Test references are coverage targets, not a claim that they passed in the curren
 
 | Requirement | Evidence or remaining gap |
 |---|---|
-| Pinned upstream audit and contract | Problem, alternatives and implementation details are recorded here; audit completeness is not established by a test. |
+| Pinned upstream audit and contract | [Pinned-upstream audit](#pinned-upstream-audit) and the contract below; third-party extensions, all external consumers and non-Linux behavior are not exhaustively audited. |
 | Fast foreground completion | `jobs-bash-supervision.test.ts::finishes in the foreground and never registers a job` |
 | 10-second yield and races | `jobs-bash-supervision.test.ts::becomes a background job at 10 seconds without restarting the command`; `::finishes in the foreground when completion wins on the 10-second tick`; `::aborts instead of yielding when cancellation arrives on the 10-second tick` |
 | Concurrency limit | `jobs-supervisor.test.ts::refuses adoption at the running limit and leaves the command in the foreground` |
@@ -25,14 +25,41 @@ Test references are coverage targets, not a claim that they passed in the curren
 | Foreground and nested Bash | `jobs-bash-supervision.test.ts::preserves top-level foreground output and exit status with supervision`; `::never yields a command run by a script, so its result keeps exit_code` |
 | RPC and session dispatch | `rpc-headless-jobs.test.ts::delivers the yield and the next-prompt notice over RPC`; `suite/agent-session-jobs.test.ts::starts a background bash job from the model and announces its finish with the next prompt` |
 | Extension overrides | `jobs-bash-supervision.test.ts::keeps a backend without a retained handle in the foreground past the yield threshold`; this does not establish all extension override behavior. |
-| Baseline resources and usability | Linux measurements are recorded in Evidence below. Comparative task usability and log-read throughput remain unmeasured. |
+| Baseline resources and usability | Linux latency, RSS, pipe and log-read throughput are recorded in Evidence below. Task usability (does a model finish tasks better with yielding jobs) is not measured and no usability claim is made. |
 | Other platforms | Not verified: non-Linux. |
 
 ## Problem
 
 Before supervision, `bash` blocked the turn until the command exited. A 90 s test run held the model with no control; `timeout` killed the command and `nohup … &` lost output and completion.
 
-With this change, a command still running after 10 s continues as a background job. The model gets `job_id`, the latest output and a cursor, and can read more or stop it. The agent is told once when the job finishes.
+With job scope and a retained handle, a top-level command still running after 10 s can continue as a background job. The model gets `job_id`, the latest output and a cursor, and can read more or stop it. A finish notice is queued subject to the rules below.
+
+## Pinned-upstream audit
+
+Pin: `922c3ff2bdea786b16c9b26680f22c2272251ffc`, as recorded in `upstream.md` and `baseline-pi-pin.json`. Pi references below are at that commit, relative to `packages/coding-agent/src/` unless noted. The upstream tracking page cautions that this fork point is not independently established; the baseline nevertheless uses this exact commit.
+
+| Surface | Pinned Pi behavior (file:symbol) | Axiom change | Supervised? | Note |
+|---|---|---|---|---|
+| Model shell | `core/tools/bash.ts:createShellToolDefinition` resolves prefix, session cwd, environment and spawn hook; waits for `exec`, returns output and structured exit code. | Same inputs, plus background/name and yield. | Built-in bash/powershell when job scope is supplied. | No scope when `job` is disallowed; SDK base-tool overrides replace the built-ins. |
+| Local backend | `core/tools/bash.ts:createLocalShellOperations` validates timeout and cwd, launches detached shell with combined streamed output, ignores stdin unless command transport uses it; abort/timeout kill its process tree, signal exit maps to 128+signal. | `executeNativeProcess` starts a helper owning a retained group capability; cwd, timeout and error interface remain. | The backend is also used outside the supervisor. | Direct `exec` has no job registration; custom operations control their own execution and cancellation. |
+| Foreground cancellation | `core/tools/bash.ts:createLocalShellOperations` passes abort to `killProcessTree`; timeout does likewise, and also after shell exit while descendants keep writing to the pipes (the wait ends after 100 ms of post-exit pipe silence, `utils/child-process.ts`). | `bash-supervision.ts:runForeground` → `ManagedJob.stop` → abort controller/native handle → helper group kill; timeout goes through `native-process.ts:executeNativeProcess`, with the same 100 ms rule. | Until yield; after yield call abort is detached, timeout remains active. | Custom operations without a handle remain foreground and must honor their signal; escaped process groups are not contained. |
+| TUI user bash | `modes/interactive/interactive-mode.ts:handleBashCommand` handles `!` and `!!`; `core/agent-session.ts:executeBash` → `core/bash-executor.ts:executeBashWithOperations`; `!!` excludes output from context. | Same dispatch; local operations now use native helper. | No job supervisor. | `abortBash` aborts active operations; no job handle or session retention for a completed shell's descendants. |
+| RPC user bash and hook | `modes/rpc/rpc-mode.ts:handleCommand` emits `user_bash`, accepts a full result or operations, else calls `executeBash`; `abort_bash` calls `abortBash`. TUI emits the same hook. | Same dispatch, native local backend. | No. | An extension-provided result or operations controls execution; arbitrary extension processes can outlive the session. |
+| Extension execution | `core/extensions/loader.ts` `exec` → `core/exec.ts:execCommand`, direct `spawn` with no shell; abort/timeout/output cap send TERM then KILL to the child. | Unchanged. | No. | Not a process-group kill; descendants may survive. Extensions can also spawn directly. |
+| Tool override and hooks | `core/extensions/loader.ts:registerTool`, `core/agent-session.ts:_refreshToolRegistry`, and `core/extensions/runner.ts:emitToolCall`: same-name registered tools replace built-ins; hooks can mutate input or block. | Registry/hook behavior remains; built-in is supervised only if actually selected. | Replacement or hook-owned execution: no. Built-in after hook: conditional. | A hook is not itself a permission gateway; direct extension execution is outside job ownership. |
+| Nested/codemode | `extensions/codemode/execute.ts` calls `ctx.executeTool`; `core/nested-tool-calls.ts:NestedToolCallRunner` runs the normal tool pipeline with parent/id and inherited signal. | Built-in shell recognizes numeric nested ids. | Prepared under scope, but never yields; explicit background rejected. | A nested replacement tool has its own behavior, not the built-in guarantee. |
+| RPC and print model calls | `modes/rpc/rpc-mode.ts:handleCommand` prompts the session and relays events; `modes/print-mode.ts:runPrintMode` prompts the same session, JSON streams events, text prints final assistant text. | Same dispatch; session supplies built-in job scope. | Conditional, like model shell above; distinct from RPC `bash`. | Print disposes after its last prompt, stopping owned jobs. |
+| Session teardown | `core/agent-session-runtime.ts:teardownCurrent`/`dispose` abort, emit `session_shutdown`, then dispose; `core/agent-session.ts:dispose` aborts and invalidates resources. Reload emits shutdown separately. | Runtime adds `stopJobs` after shutdown, then `dispose` in `finally`; session dispose calls `killSession`. | Owned jobs and retained groups. | `session_shutdown` handler errors are caught by the extension runner. Abort and shutdown precede the `try/finally`, so a hang there (abort waiting for an unresponsive turn, or a handler that never settles) delays `stopJobs` and `killSession`; a forced exit during that wait leaves cleanup to helper disconnect. Reload's extension shutdown is not session replacement. |
+| Signals | `modes/{interactive/interactive-mode,rpc/rpc-mode,print-mode}.ts` call `utils/shell.ts:killTrackedDetachedChildren` on SIGTERM/SIGHUP; pinned local bash registers its detached shell pid, so SIGHUP group-killed running commands. | Nothing registers in the tracked-PID set any more (`trackDetachedChildPid` has no callers), so that call is a no-op. Signal shutdown reaches runtime disposal. The helper shares its owner's process group, so it receives group-directed signals; it handles SIGHUP, SIGINT and SIGTERM without exiting, and its command (own session) is killed when the owner disconnects (stdin EOF) or on disposal. | Owned jobs get runtime cleanup or helper-EOF cleanup. | A second signal forces exit in print and RPC only; interactive `emergencyTerminalExit` and `uncaughtCrash` exit without disposal and rely on helper EOF. SIGINT has no handler in these modes. Before the helper handled these signals, a group-directed hangup or Ctrl+C killed the helpers and left their commands running unowned. |
+| Other subprocesses | `core/tools/{find,grep}.ts` spawn `fd`/`rg`; `core/resolve-config-value.ts:executeCommandUncached` runs configured shell commands; `core/exec.ts` above. | These paths remain separate. | No. | Search tools kill their child on abort; config command has a 10 s timeout, not a group guarantee. Model-accessible search is not a general shell, but custom executables/descendants are not contained. |
+| Host subprocesses | `core/footer-data-provider.ts`, `modes/interactive/{external-editor,session-share,interactive-mode}.ts`, `modes/interactive/components/session-selector.ts`, `modes/rpc/rpc-client.ts`, `utils/{clipboard-command,open-browser,shell,tools-manager}.ts`; `packages/env/src/{connection,ssh}.ts`. Also package-manager, config, path-attribute and TUI autocomplete/tmux spawns. | No job-scope wiring in these spawn paths. | No; host/editor/browser, RPC client and environment transport are outside this shell-job contract. | Non-exhaustive: other spawn sites are user- or host-triggered and none gives the model a shell. Some are intentionally long-lived or detached; their lifecycle is their own, not a supervisor safety guarantee. |
+| MCP stdio servers | `extensions/mcp/runtime.ts` → `packages/mcp/src/transports/stdio.ts:StdioTransport` starts the configured command detached in its own process group; close signals the group TERM then KILL; a process `exit` hook TERMs live groups. | Unchanged. | No. | A second process-group owner with numeric group signals and no `stopJobs` or `killSession` involvement. Model tool calls reach these servers. |
+
+### Alternatives considered
+
+- Pi's process-only spawn and numeric group kill retain no stable group capability after leader exit; the contract's native-handle decision addresses descendant cleanup and PID reuse.
+- A native group capability with a helper is the current choice: it retains identity through session cleanup and provides explicit signalling without restarting a yielded command. It is not a sandbox.
+- A tmux/PTY multiplexer or detached service as the bash/job backend was not evaluated. `packages/env` has a PTY-capable remote daemon for Durable environments, which coding-agent bash does not use.
 
 ## Facts the design depends on
 
@@ -45,7 +72,7 @@ With this change, a command still running after 10 s continues as a background j
 | `_beforeToolCall` runs only extension `tool_call` handlers; there is no built-in permission gate (`agent-session.ts:694–700`). | P4 must authorize both `bash` commands and `job` input; ownership alone is not authorization. |
 | Nested calls from codemode get ids `<parent>/<n>` (`extensions/types.ts`, `nested-tool-calls.ts`). | `bash` detects nested calls by id and never yields them. Their `exit_code` contract stays intact. |
 | `_prepareRun` drains `_pendingNextTurnMessages` (`agent-session.ts:2006`). `sendCustomMessage` with `nextTurn` only queues (`:2450`). | A notice is visible at the next user prompt, not immediately. Notices of jobs the model already saw are dropped at drain time. |
-| `AgentSessionRuntime.teardownCurrent` and `dispose` (`agent-session-runtime.ts:167, 409`). Signal exits call `killTrackedDetachedChildren` (hard kill). | Stop-jobs goes into the runtime teardown. Signal exits remain hard kills, documented. |
+| `AgentSessionRuntime.teardownCurrent` and `dispose` (`agent-session-runtime.ts:167, 413`) emit shutdown before stopping jobs. Signal handlers call `killTrackedDetachedChildren`, but the native backend does not register its helpers there. | Runtime disposal stops owned jobs; early or forced exits do not necessarily run that cleanup. |
 
 ## Review response (rev 2 review)
 
@@ -56,7 +83,7 @@ With this change, a command still running after 10 s continues as a background j
 | B3 | nextTurn not displayed or exactly-once | Partly agreed. Notice is shown at the next prompt, not immediately; documented limit. Exactly-once: notices of jobs observed by a `job` call are dropped at drain. |
 | B4 | send_input bypasses gate | Partly agreed. There is no gate today (see Facts). Stated as a P4 requirement. |
 | M5 | Codemode shape | Agreed. Nested calls never yield. `exit_code` stays required. |
-| M6 | Teardown order, signal exits | Agreed. Stop-jobs runs after `session_shutdown` and before `dispose()`, in `try/finally`. Signal exits are documented hard kills. |
+| M6 | Teardown order, signal exits | Stop-jobs runs after `session_shutdown` and before `dispose()`; the `try/finally` covers stop-jobs, not preceding abort or shutdown. Signal behavior differs from Pi's tracked-PID path; see the audit. |
 | M7 | Yield-boundary races | Agreed in part. The yield is decided before any await after exec settles; `finishOutput` runs at yield and the accumulator is detached. Backends without retained handles stay foreground and cannot start explicit background jobs. |
 | M8 | Descendants outlive the job | Agreed. Group stays tracked and is killed at session close; snapshot shows `descendants: true`. |
 | M9 | Registry leaks commands, pid reuse | Agreed. No command in the record; file mode 0600. Orphans are informational; `job stop` never acts on them. |
@@ -139,13 +166,13 @@ Byte ring, 512 KiB, allocated on first append (so unregistered foreground jobs t
 
 Custom operations opt in to explicit background execution with `retainsProcessHandle: true` and must supply the handle. Without it, foreground execution remains available.
 
-Foreground commands keep stdin `ignore`.
+Foreground commands use ignored stdin except when the shell receives the command over stdin.
 
 ## Session lifecycle
 
-- `AgentSessionRuntime.teardownCurrent` and `dispose`: `abort()`, `session_shutdown`, then `await session.stopJobs()` in `try/finally`, then `session.dispose()`.
+- `AgentSessionRuntime.teardownCurrent` and `dispose`: `abort()`, `session_shutdown`, then `await session.stopJobs()` in `try/finally`, then `session.dispose()`. Handler errors are caught; a hang before the `try` delays job cleanup.
 - `AgentSession.dispose()`: `killSession` (sync).
-- Signal exits (`killTrackedDetachedChildren`) are hard kills, documented.
+- Signals: the tracked-PID set is empty, so `killTrackedDetachedChildren` does nothing. SIGTERM/SIGHUP initiate runtime disposal. The helper survives group-directed hangup, interrupt and terminate signals and ends its command when the owner disconnects. Forced or emergency exits can bypass disposal.
 
 ## Notices and `/jobs`
 
@@ -159,13 +186,13 @@ Foreground commands keep stdin `ignore`.
 
 ## Permissions
 
-No central permission gate exists today (see Facts). Session ownership limits which jobs a session can address; it does not authorize their commands or input. In particular, `send_input` may supply commands to an interpreter and must be mediated by P4. P7 sandbox execution and enforcement remain pending; host execution is not evidence of sandbox isolation. Not covered: TUI `!`, RPC `bash`, `pi.exec`, extension code. `bash` and `powershell` supervise commands only when the `job` tool is allowed; otherwise a long command runs in the foreground as before. The P3 security gate remains open until P4/P7 integration is verified.
+No central permission gate exists today (see Facts). Session ownership limits which jobs a session can address; it does not authorize their commands or input. In particular, `send_input` may supply commands to an interpreter and must be mediated by P4. P7 sandbox execution and enforcement remain pending; host execution is not evidence of sandbox isolation. TUI `!`/`!!`, RPC `bash`, `user_bash` overrides, `pi.exec`, extension-owned processes, shell-tool replacements and host subprocesses bypass job supervision; see the audit for their individual limits. Built-in `bash` and `powershell` receive scope only when `job` is allowed and built-in definitions are used; custom operations without a retained handle cannot yield. The P3 security gate remains open until P4/P7 integration is verified.
 
 ## Known limits
 
 - Auto-yielded jobs have no stdin; only `background: true` jobs do.
 - Notices appear at the next prompt, not immediately.
-- Signal exits (SIGHUP, SIGTERM, SIGINT) hard-kill jobs; no grace.
+- A signal sent to Axiom's process group reaches the helpers, which ignore SIGHUP, SIGINT and SIGTERM (a handler, so commands keep the defaults). If the owner dies, the helper sees EOF and kills the command's group; if it handles the signal, disposal stops jobs with grace. SIGKILL of a helper (outside Axiom's control) still leaves its setsid command unowned. Repeated signals or emergency exits can bypass disposal. Group-directed signal survival is tested on Linux only.
 - Custom operations without retained-handle support stay in the foreground and reject explicit `background` before launch.
 - Orphan reports are informational: a recorded pid cannot prove process identity after a crash.
 - On Unix, a process can leave its original process group with `setsid`; the group handle is not a sandbox. Descendant containment remains a P7 gate.
@@ -241,6 +268,10 @@ Bounded fallback accumulation: with a seccomp filter denying `pidfd_send_signal`
 
 Startup stall: a helper script that ignores the protocol stands in for a blocked spawn. After an abort or timeout, `executeNativeProcess` rejects with `aborted` or the native timeout error after the 5 s grace, and the stand-in helper is killed (two tests). The pidfd-dependent lifecycle tests now skip on a real helper probe instead of the kernel version.
 
+Log read throughput (throwaway script, deleted; Node with type stripping, this host, five runs after a 64 MiB append): paging the retained 512 KiB window with 64 KiB pages and cursors, 3,200 pages per run, median 1,085 MiB/s (1,079-1,110). This is an in-memory read of the job log, not pipe or disk throughput. Pi has no job log, so there is no baseline to compare.
+
+Group-directed signals (found by the audit review, reproduced, fixed): a stand-in owner and its helper in one process group, `kill(-pgid, SIGHUP|SIGINT|SIGTERM)`. Before the fix the helper died and its `sleep 60` command stayed alive in all three cases; after the fix the owner dies, the helper sees EOF and the command is killed in all three. The helper-level test is in `native-process-lifecycle.test.ts`. The stand-in owner is a plain Node process, not the Axiom CLI; real print/RPC/TUI signal paths were not run.
+
 The following measurements predate the native-handle cutover and do not verify it.
 
 
@@ -272,4 +303,4 @@ Retain `send_input`: it is part of the frozen P3 contract. Deferring it requires
 
 ## Gate evidence to record
 
-Recorded above: yield latency, stop latency, abort latency and pipe throughput versus the pinned Pi, schema bytes, and release-build per-job RSS and spawn latency. Not recorded: a comparison of log read throughput (Pi has no job log to compare), and any task-success measure. Negative results are reported; no task-success claim.
+Recorded above: yield latency, stop latency, abort latency and pipe throughput versus the pinned Pi, schema bytes, release-build per-job RSS and spawn latency, and job-log read throughput (absolute; Pi has no job log). Not recorded: any task-usability or task-success measure. Negative results are reported; no task-success claim.

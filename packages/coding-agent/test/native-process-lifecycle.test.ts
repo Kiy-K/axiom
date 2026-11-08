@@ -467,4 +467,32 @@ describe.skipIf(process.platform !== "linux")("native shell process lifecycle", 
 			controller.abort();
 		}
 	}, 10_000);
+
+	it("outlives hangup, interrupt and terminate signals and kills its command only when its owner disconnects", async () => {
+		const helper = spawn(getNativeProcessHelperPath(), [], { stdio: ["pipe", "pipe", "ignore"] });
+		let seen = "";
+		helper.stdout.on("data", (chunk: Buffer) => {
+			seen += chunk.toString("latin1");
+		});
+		helper.stdin.write(
+			`${JSON.stringify({ type: "start", command: "/bin/sh", args: ["-c", "sleep 30"], cwd: "/", env: {}, stdin: false })}\n`,
+		);
+		let commandPid = 0;
+		try {
+			expect(await until(() => /"pid":\d+/.test(seen))).toBe(true);
+			commandPid = Number(seen.match(/"pid":(\d+)/)?.[1]);
+			// A terminal hangup or Ctrl+C reaches the helper because it shares its owner's process group.
+			for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"] as const) helper.kill(signal);
+			await delay(300);
+			expect(helper.exitCode).toBeNull();
+			expect(helper.signalCode).toBeNull();
+			expect(alive(commandPid)).toBe(true);
+			// The owner going away is what ends the command.
+			helper.stdin.end();
+			expect(await until(() => !alive(commandPid))).toBe(true);
+		} finally {
+			helper.kill("SIGKILL");
+			if (commandPid > 0 && alive(commandPid)) process.kill(-commandPid, "SIGKILL");
+		}
+	}, 15_000);
 });
