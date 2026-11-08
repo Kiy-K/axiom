@@ -1,18 +1,11 @@
 import { constants } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
-import { constants as osConstants } from "node:os";
-import { spawn } from "child_process";
+import type { Writable } from "node:stream";
 import { type Static, Type } from "typebox";
-import { waitForChildProcess } from "../../utils/child-process.ts";
-import {
-	getShellConfig,
-	getShellEnv,
-	killProcessTree,
-	type ShellConfig,
-	trackDetachedChildPid,
-	untrackDetachedChildPid,
-} from "../../utils/shell.ts";
+import { getShellConfig, getShellEnv, type ShellConfig } from "../../utils/shell.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { type JobScope, runSupervisedCommand, yieldedResult } from "./bash-supervision.ts";
+import { executeNativeProcess, NativeTimeoutError } from "./native-process.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { BASH_UPDATE_THROTTLE_MS, createShellRenderers } from "./renderers/bash.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -39,6 +32,8 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+	background: Type.Optional(Type.Boolean({ description: "Start as a background job and return its job_id at once" })),
+	name: Type.Optional(Type.String({ description: "Label for a background job" })),
 });
 
 export const bashToolSystemPromptContribution = {
@@ -67,11 +62,31 @@ export interface BashToolDetails {
 	fullOutputPath?: string;
 }
 
+/** An opaque capability owned by the native process helper. The pid is informational only. */
+export interface NativeProcessHandle {
+	pid: number;
+	signal(signal: "term" | "kill"): void;
+	readonly lost?: boolean;
+	onLost?(listener: () => void): void;
+	onEmpty?(listener: () => void): void;
+	/** Fires once the helper has confirmed the group is empty after cleanup. */
+	onCleaned?(listener: () => void): void;
+	/** Ask the helper to stop the group and confirm when it is empty. */
+	cleanup?(): void;
+	close(): void;
+}
+
 /**
  * Pluggable operations for the bash tool.
  * Override these to delegate command execution to remote systems (for example SSH).
  */
 export interface BashOperations {
+	/**
+	 * True when `exec` will call `onHandle` with a retained process capability.
+	 * Explicit background is rejected before `exec` when this is not true.
+	 * A wrapper that replaces `exec` must copy this flag or background is refused.
+	 */
+	retainsProcessHandle?: boolean;
 	/**
 	 * Execute a command and stream output.
 	 * @param command The command to execute
@@ -88,6 +103,12 @@ export interface BashOperations {
 			signal?: AbortSignal;
 			timeout?: number;
 			env?: NodeJS.ProcessEnv;
+			/** Receives the child's stdin as a writable pipe. Only background jobs ask for it; not called when the command is read from stdin. */
+			onStdin?: (stdin: Writable) => void;
+			/** Reports the process group leader pid once the process has spawned. */
+			onSpawn?: (pid: number) => void;
+			/** Supplies an owned native process capability, retained until explicitly closed. */
+			onHandle?: (handle: NativeProcessHandle) => void;
 		},
 	) => Promise<{ exitCode: number | null }>;
 }
@@ -109,7 +130,8 @@ class ShellTimeoutError extends Error {
 /** Shared process execution used by the built-in shell tools. */
 export function createLocalShellOperations(shellName: string, resolveShellConfig: () => ShellConfig): BashOperations {
 	return {
-		exec: async (command, cwd, { onData, signal, timeout, env }) => {
+		retainsProcessHandle: true,
+		exec: async (command, cwd, { onData, signal, timeout, env, onStdin, onSpawn, onHandle }) => {
 			const timeoutMs = resolveTimeoutMs(timeout);
 			if (signal?.aborted) {
 				throw new Error("aborted");
@@ -121,73 +143,23 @@ export function createLocalShellOperations(shellName: string, resolveShellConfig
 				throw new Error(`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`);
 			}
 
-			const commandFromStdin = shellConfig.commandTransport === "stdin";
-			const child = spawn(shellConfig.shell, commandFromStdin ? shellConfig.args : [...shellConfig.args, command], {
-				cwd,
-				detached: process.platform !== "win32",
-				env: env ?? getShellEnv(),
-				stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
-				windowsHide: true,
-			});
-			if (commandFromStdin) {
-				child.stdin?.on("error", () => {});
-				child.stdin?.end(command);
-			}
-			if (child.pid) trackDetachedChildPid(child.pid);
-			const startedAt = performance.now();
-			let shellExitedAfterMs: number | undefined;
-			child.once("exit", () => {
-				shellExitedAfterMs = performance.now() - startedAt;
-			});
-			let timedOut = false;
-			let exitedBeforeDeadlineAfterMs: number | undefined;
-			let timeoutHandle: NodeJS.Timeout | undefined;
-			const onAbort = () => {
-				if (child.pid) killProcessTree(child.pid);
-			};
-
 			try {
-				// Set timeout if provided.
-				if (timeoutMs !== undefined) {
-					timeoutHandle = setTimeout(() => {
-						timedOut = true;
-						exitedBeforeDeadlineAfterMs = shellExitedAfterMs;
-						// Also when the shell already exited: on Unix the group kill still reaches background
-						// processes holding the pipes. Windows cannot find them once the shell pid is gone.
-						if (child.pid) killProcessTree(child.pid);
-					}, timeoutMs);
-				}
-				// Stream stdout and stderr.
-				child.stdout?.on("data", onData);
-				child.stderr?.on("data", onData);
-				// Handle abort signal by killing the entire process tree.
-				if (signal) {
-					if (signal.aborted) onAbort();
-					else signal.addEventListener("abort", onAbort, { once: true });
-				}
-				// Handle shell spawn errors and wait for the process to terminate without hanging
-				// on inherited stdio handles held by detached descendants.
-				const exitCode = await waitForChildProcess(child);
-				if (signal?.aborted) {
-					throw new Error("aborted");
-				}
-				// A signal-killed shell has no exit code. Use the standard shell convention so
-				// callers do not mistake the termination for a successful command.
-				const signalCode = child.signalCode;
-				const resolvedExitCode = exitCode ?? (signalCode ? 128 + (osConstants.signals[signalCode] ?? 0) : 1);
-				if (timedOut) {
-					throw new ShellTimeoutError(
-						timeout,
-						exitedBeforeDeadlineAfterMs !== undefined
-							? { exitCode: resolvedExitCode, afterSeconds: Math.round(exitedBeforeDeadlineAfterMs / 100) / 10 }
-							: undefined,
-					);
-				}
-				return { exitCode: resolvedExitCode };
-			} finally {
-				if (child.pid) untrackDetachedChildPid(child.pid);
-				if (timeoutHandle) clearTimeout(timeoutHandle);
-				if (signal) signal.removeEventListener("abort", onAbort);
+				const exitCode = await executeNativeProcess({
+					command,
+					cwd,
+					env: env ?? getShellEnv(),
+					shell: shellConfig,
+					onData,
+					onStdin,
+					onSpawn,
+					onHandle,
+					signal,
+					timeoutMs,
+				});
+				return { exitCode };
+			} catch (error) {
+				if (error instanceof NativeTimeoutError) throw new ShellTimeoutError(timeout, error.shellExit);
+				throw error;
 			}
 		},
 	};
@@ -250,6 +222,8 @@ export interface BashToolOptions {
 	exposeSessionEnvironment?: boolean;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
+	/** Background job supervision. Without it, commands run in the foreground only. */
+	jobs?: JobScope;
 }
 
 export type BashRenderState = {
@@ -277,22 +251,32 @@ export function createShellToolDefinition(
 	const commandPrefix = options?.commandPrefix;
 	const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
 	const spawnHook = options?.spawnHook;
+	const jobs = options?.jobs;
 	return {
 		name: config.name,
 		label: config.label,
-		description: `Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		description: `Execute a ${config.shellName} command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.${jobs ? " A command still running after 10 seconds continues as a background job; read or stop it with the job tool." : ""}`,
 		promptSnippet: config.promptSnippet,
 		promptGuidelines: exposeSessionEnvironment && config.promptGuidelines ? [...config.promptGuidelines] : undefined,
 		parameters: bashSchema,
 		outputSchema: bashOutputSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
-			_toolCallId,
-			{ command, timeout }: { command: string; timeout?: number },
+			toolCallId,
+			{
+				command,
+				timeout,
+				background,
+				name,
+			}: { command: string; timeout?: number; background?: boolean; name?: string },
 			signal?: AbortSignal,
 			onUpdate?,
 			ctx?: ExtensionContext,
 		) {
+			if (background && !jobs) throw new Error("Background jobs are not available in this session.");
+			// Nested calls from scripts carry `<parent>/<n>` ids. Provider ids may contain "/", so only the numeric suffix counts.
+			const nested = /\/\d+$/.test(toolCallId);
+			if (background && nested) throw new Error("background is not available for commands run by a script.");
 			const resolvedCommand = commandPrefix ? `${commandPrefix}\n${command}` : command;
 			const spawnContext = resolveSpawnContext(
 				resolvedCommand,
@@ -389,13 +373,34 @@ export function createShellToolDefinition(
 			try {
 				let exitCode: number | null;
 				try {
-					const result = await ops.exec(spawnContext.command, spawnContext.cwd, {
-						onData: handleData,
-						signal,
-						timeout,
-						env: spawnContext.env,
-					});
-					exitCode = result.exitCode;
+					if (jobs) {
+						const run = await runSupervisedCommand({
+							scope: jobs,
+							operations: ops,
+							command: spawnContext.command,
+							cwd: spawnContext.cwd,
+							env: spawnContext.env,
+							timeout,
+							name,
+							background: background === true,
+							yieldAfterMs: nested ? null : undefined,
+							signal,
+							onData: handleData,
+						});
+						if (run.kind === "yielded") {
+							await finishOutput();
+							return yieldedResult(run.job, background === true);
+						}
+						exitCode = run.exitCode;
+					} else {
+						const result = await ops.exec(spawnContext.command, spawnContext.cwd, {
+							onData: handleData,
+							signal,
+							timeout,
+							env: spawnContext.env,
+						});
+						exitCode = result.exitCode;
+					}
 				} catch (err) {
 					const snapshot = await finishOutput();
 					const { text } = formatOutput(snapshot, "");

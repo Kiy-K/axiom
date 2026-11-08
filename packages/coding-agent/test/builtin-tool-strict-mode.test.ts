@@ -85,7 +85,8 @@ describe("strict built-in tools", () => {
 				try {
 					const originalPrompt = session.systemPrompt;
 					await session.bindExtensions({});
-					expect(session.getActiveToolNames()).toEqual(activeTools);
+					// `job` follows the shell tools; its strictness is checked with the loop below.
+					expect(session.getActiveToolNames().filter((name) => name !== "job")).toEqual(activeTools);
 					expect(session.systemPrompt).toBe(originalPrompt);
 					for (const name of strictToolNames) {
 						expect(session.getToolDefinition(name)?.constrainedSampling).toBe(false);

@@ -214,6 +214,30 @@ export function killTrackedDetachedChildren(): void {
 	trackedDetachedChildPids.clear();
 }
 
+/** SIGTERM to a process group, for graceful stops. Windows has no graceful group signal, so it kills. */
+export function terminateProcessTree(pid: number): void {
+	if (process.platform === "win32") {
+		killProcessTree(pid);
+		return;
+	}
+	try {
+		process.kill(-pid, "SIGTERM");
+	} catch {
+		// The group already exited.
+	}
+}
+
+/** Whether any process still belongs to the group led by `pid` (Unix). Windows cannot tell, so it reports false. */
+export function isProcessGroupAlive(pid: number): boolean {
+	if (process.platform === "win32") return false;
+	try {
+		process.kill(-pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
 /**
  * Kill a process and all its children (cross-platform)
  */

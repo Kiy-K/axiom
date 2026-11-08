@@ -36,22 +36,8 @@ jobs:
       - name: Build
         run: bun run build
 
-      # Previews are published for main, release tags and PRs from branches of this repo only (see preview-packages.yml).
-      - name: Pack preview packages
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          # Pull request runs check out a merge commit; tarballs are keyed by the PR head commit.
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: node scripts/preview-packages.mjs pack --sha "$SHA" --out "$RUNNER_TEMP/preview-packages"
+      # Preview tarballs are packed by pack-preview after every retained helper is staged.
 
-      - name: Upload preview packages
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: preview-packages
-          path: ${{ runner.temp }}/preview-packages
-          retention-days: 3
-          if-no-files-found: error
 
       - name: Check
         run: bun run check
@@ -134,3 +120,82 @@ jobs:
       # regressions against packages/coding-agent/test/mcp-conformance/baseline.json.
       - name: MCP client conformance
         run: bun run test:mcp-conformance
+
+  # Preview packages must contain every shipped helper, not only the ubuntu host build.
+  process-helpers:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/env-daemons.yml
+    permissions:
+      contents: read
+
+  pack-preview:
+    needs: process-helpers
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Download retained process helpers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: axiom-process-*
+          path: process-helpers
+
+      - name: Install retained process helpers
+        run: |
+          set -euo pipefail
+          mkdir -p packages/coding-agent/native/process
+          for dir in process-helpers/axiom-process-*; do
+            platform="${dir##*/axiom-process-}"
+            platform="${platform/windows-/win32-}"
+            cp -R "$dir" "packages/coding-agent/native/process/$platform"
+            chmod +x "packages/coding-agent/native/process/$platform/"*
+          done
+          for platform in linux-x64 linux-arm64 darwin-x64 darwin-arm64 android-arm64 android-x64; do
+            test -s "packages/coding-agent/native/process/$platform/axiom-process"
+            test -x "packages/coding-agent/native/process/$platform/axiom-process"
+          done
+          for platform in win32-x64 win32-arm64; do
+            test -s "packages/coding-agent/native/process/$platform/axiom-process.exe"
+          done
+
+      - name: Build
+        run: bun run build
+
+      - name: Pack preview packages
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/preview-packages.mjs pack --sha "$SHA" --out "$RUNNER_TEMP/preview-packages"
+
+      - name: Smoke packed preview helpers
+        env:
+          DIR: ${{ runner.temp }}/preview-packages
+        run: |
+          set -euo pipefail
+          # Host helper is executed. Android binaries are presence-checked only; running them is unverified.
+          file="$(node -e 'const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const hit=m.packages.find((p)=>p.name==="@earendil-works/pi-coding-agent"); if(!hit) process.exit(1); process.stdout.write(hit.file)' "$DIR/manifest.json")"
+          root="$(mktemp -d)"
+          tar -xzf "$DIR/$file" -C "$root"
+          node scripts/smoke-test-process-helper.mjs --require-all "$root/package"
+
+      - name: Upload preview packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: preview-packages
+          path: ${{ runner.temp }}/preview-packages
+          retention-days: 3
+          if-no-files-found: error

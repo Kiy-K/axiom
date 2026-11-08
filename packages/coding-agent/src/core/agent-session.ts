@@ -13,8 +13,9 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
 	type AfterToolCallContext,
 	type AfterToolCallResult,
@@ -57,6 +58,7 @@ import {
 	resetApiProviders,
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
+import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
@@ -115,6 +117,10 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { type BeforeAgentStartTrigger, emitSessionShutdownEvent } from "./extensions/runner.ts";
+import { formatFinishNotice } from "./jobs/format.ts";
+import type { JobSnapshot, ManagedJob } from "./jobs/managed-job.ts";
+import type { JobRecord } from "./jobs/registry.ts";
+import { JobSupervisor, type StopResult } from "./jobs/supervisor.ts";
 import { createToolNameMatcher, isMcpToolName } from "./mcp-servers.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
@@ -148,8 +154,10 @@ import {
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
+import type { JobScope } from "./tools/bash-supervision.ts";
 import { createHashlineEditToolDefinition } from "./tools/hashline-edit.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
+import { createJobToolDefinition } from "./tools/job.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-totals.ts";
 import {
@@ -433,6 +441,10 @@ export class AgentSession {
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 	/** Context-only custom messages queued during a run, flushed once the current turn's tool results are in. */
 	private _pendingCustomMessages: CustomMessage[] = [];
+	/** Owner id of this session's background jobs; fixed for this AgentSession object. */
+	private readonly _jobOwner = randomUUID();
+	private readonly _jobs = new JobSupervisor({ registryDir: join(getAgentDir(), "jobs") });
+	private readonly _jobScope: JobScope = { supervisor: this._jobs, owner: () => this._jobOwner };
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -520,6 +532,7 @@ export class AgentSession {
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
 		this.settingsManager = config.settingsManager;
+		this._jobs.onFinished(this._jobOwner, (job) => this._queueJobNotice(job));
 		this._scopedModels = config.scopedModels ?? [];
 		this._resourceLoader = config.resourceLoader;
 		this._customTools = config.customTools ?? [];
@@ -1470,7 +1483,49 @@ export class AgentSession {
 			this._cacheWarmer.onWarmed = undefined;
 			this._cacheWarmer.cancel();
 		}
+		this._jobs.killSession(this._jobOwner);
 		cleanupSessionResources(this.sessionId);
+	}
+
+	/** Stop this session's background jobs gracefully. Called before the session is disposed. */
+	async stopJobs(): Promise<void> {
+		await this._jobs.stopSession(this._jobOwner);
+	}
+
+	/** Background jobs of this session, newest first. */
+	listJobs(): JobSnapshot[] {
+		return this._jobs.list(this._jobOwner);
+	}
+
+	/** Stop one background job of this session. */
+	stopJob(jobId: string): Promise<StopResult> {
+		return this._jobs.stop(jobId, this._jobOwner, { announce: true });
+	}
+
+	/** Crash records of jobs that may still run, from earlier processes. Informational only. */
+	orphanedJobs(): JobRecord[] {
+		return this._jobs.orphans();
+	}
+
+	/** Queue a finished job's notice; it reaches the model with the next user prompt. */
+	private _queueJobNotice(job: ManagedJob): void {
+		this.sendCustomMessage(
+			{ customType: "job_finished", content: formatFinishNotice(job), display: true, details: { jobId: job.jobId } },
+			{ deliverAs: "nextTurn" },
+		).catch((error: unknown) => {
+			this._extensionRunner.emitError({
+				extensionPath: "<runtime>",
+				event: "job_finished",
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
+	}
+
+	/** Whether `msg` is the finish notice of a job the model has already read through the job tool. */
+	private _isObservedJobNotice(msg: CustomMessage): boolean {
+		const details = msg.details;
+		if (msg.customType !== "job_finished" || typeof details !== "object" || details === null) return false;
+		return "jobId" in details && typeof details.jobId === "string" && this._jobs.isObserved(details.jobId);
 	}
 
 	// =========================================================================
@@ -1585,7 +1640,11 @@ export class AgentSession {
 		if (previous.some((name) => !active.has(name))) this._pendingToolNames.clear();
 	}
 
-	private _setActiveTools(toolNames: string[]): void {
+	private _setActiveTools(requestedNames: string[]): void {
+		// `job` follows the shell tools: it is active exactly when bash or powershell is.
+		const shellActive = requestedNames.includes("bash") || requestedNames.includes("powershell");
+		const toolNames = requestedNames.filter((name) => name !== "job");
+		if (shellActive) toolNames.push("job");
 		const tools = this._applyToolLoadout(toolNames);
 		for (const tool of tools) this._pendingToolNames.delete(tool.name);
 		this._rebuildSystemPrompt(tools.map((tool) => tool.name));
@@ -2003,7 +2062,8 @@ export class AgentSession {
 			});
 		}
 		// Inject any pending "nextTurn" messages as context alongside the starting message
-		messages.push(...this._pendingNextTurnMessages);
+		// Notices of jobs the model has already read through the job tool are not repeated.
+		messages.push(...this._pendingNextTurnMessages.filter((msg) => !this._isObservedJobNotice(msg)));
 		this._pendingNextTurnMessages = [];
 		for (const msg of result.messages) {
 			messages.push({
@@ -3743,6 +3803,8 @@ export class AgentSession {
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
 		const editMode = this.settingsManager.getEditMode();
+		// A command moves to a background job only when the job tool can manage it.
+		const jobScope = this._isAllowedTool("job") ? this._jobScope : undefined;
 		const baseToolDefinitions = this._baseToolsOverride
 			? Object.fromEntries(
 					Object.entries(this._baseToolsOverride).map(([name, tool]) => [
@@ -3753,9 +3815,11 @@ export class AgentSession {
 			: {
 					...createAllToolDefinitions(this._cwd, {
 						read: { autoResizeImages, hashline: editMode === "hashline" },
-						bash: { commandPrefix: shellCommandPrefix, shellPath },
+						bash: { commandPrefix: shellCommandPrefix, shellPath, jobs: jobScope },
+						powershell: { jobs: jobScope },
 					}),
 					...(editMode === "hashline" ? { edit: createHashlineEditToolDefinition(this._cwd) } : {}),
+					job: createJobToolDefinition(this._jobScope),
 				};
 
 		this._baseToolDefinitions = new Map(

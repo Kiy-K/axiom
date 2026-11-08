@@ -429,6 +429,23 @@ export function getPackageDir(): string {
 	return findNodePackageDir(__dirname);
 }
 
+/** Resolve the retained-process helper shipped for this runtime. */
+export function getNativeProcessHelperPath(): string {
+	const name = process.platform === "win32" ? "axiom-process.exe" : "axiom-process";
+	const packageDir = getPackageDir();
+	const packaged = join(packageDir, "native", "process", `${process.platform}-${process.arch}`, name);
+	if (existsSync(packaged)) return packaged;
+	if (!process.env.PI_PACKAGE_DIR && existsSync(join(packageDir, "src"))) {
+		const development = resolve(packageDir, "../env/daemon/target/debug", name);
+		if (existsSync(development)) return development;
+	}
+	throw new Error(
+		`Native process helper not found: ${packaged}. In a source checkout, run ` +
+			"`cargo build --manifest-path packages/env/daemon/Cargo.toml --locked --bin axiom-process` from the repository root. " +
+			"Otherwise reinstall the npm package or standalone distribution for this platform.",
+	);
+}
+
 /**
  * Get path to built-in themes directory (shipped with package)
  * - For Bun binary: theme/ next to executable

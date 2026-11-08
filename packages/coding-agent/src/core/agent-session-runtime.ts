@@ -173,8 +173,12 @@ export class AgentSessionRuntime {
 			reason,
 			targetSessionFile,
 		});
-		this.beforeSessionInvalidate?.();
-		this.session.dispose();
+		try {
+			await this.session.stopJobs();
+		} finally {
+			this.beforeSessionInvalidate?.();
+			this.session.dispose();
+		}
 	}
 
 	private apply(result: CreateAgentSessionRuntimeResult): void {
@@ -412,9 +416,16 @@ export class AgentSessionRuntime {
 			type: "session_shutdown",
 			reason: "quit",
 		});
-		this.beforeSessionInvalidate?.();
-		this.session.dispose();
-		await this.services.modelRuntime.settleCredentialWrites();
+		try {
+			await this.session.stopJobs();
+		} finally {
+			try {
+				this.beforeSessionInvalidate?.();
+				this.session.dispose();
+			} finally {
+				await this.services.modelRuntime.settleCredentialWrites();
+			}
+		}
 	}
 }
 

@@ -96,6 +96,7 @@ import type {
 } from "../../core/extensions/index.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
+import { formatJobList, formatJobStatus } from "../../core/jobs/format.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../core/messages.ts";
 import {
@@ -3381,6 +3382,11 @@ export class InteractiveMode {
 			}
 			if (text === "/session") {
 				this.handleSessionCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/jobs" || text.startsWith("/jobs ")) {
+				await this.handleJobsCommand(text.slice("/jobs".length).trim());
 				this.editor.setText("");
 				return;
 			}
@@ -6841,6 +6847,32 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Spacer(1));
 		const displayName = sessionName ?? name;
 		this.chatContainer.addChild(new ThemedText(() => theme.fg("dim", `Session name set: ${displayName}`), 1, 0));
+		this.ui.requestRender();
+	}
+
+	private async handleJobsCommand(args: string): Promise<void> {
+		const stopMatch = /^stop\s+(\S+)$/.exec(args);
+		let text: string;
+		try {
+			if (stopMatch) {
+				const result = await this.session.stopJob(stopMatch[1]);
+				text = formatJobStatus(result.job, Date.now());
+			} else {
+				const jobs = this.session.listJobs();
+				const orphans = this.session
+					.orphanedJobs()
+					.map(
+						(record) =>
+							`${record.job_id}  orphaned  pid ${record.pid}  (not stopped; may belong to another process)`,
+					);
+				const owned = jobs.length > 0 ? formatJobList(jobs, Date.now()) : undefined;
+				text = [owned, ...orphans].filter((line) => line).join("\n") || "No background jobs.";
+			}
+		} catch (error) {
+			text = error instanceof Error ? error.message : String(error);
+		}
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
 		this.ui.requestRender();
 	}
 

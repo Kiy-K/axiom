@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 #
-# Build axiom binaries for all platforms locally.
-# Mirrors .github/workflows/build-binaries.yml
+# Build axiom standalone archives for the six desktop platforms.
+# Mirrors .github/workflows/build-binaries.yml. Android helpers are npm and preview only.
+#
+# Each requested platform needs a prebuilt helper at
+# packages/coding-agent/native/process/<platform>/axiom-process
+# (win32-* and axiom-process.exe for windows-*). `bun run build` only produces the host helper.
+# Stage the others first, or pass --platform for one that exists. Missing helpers fail before
+# install, the package build, or output deletion.
 #
 # Usage:
 #   ./scripts/build-binaries.sh [--skip-install] [--skip-build] [--offline-model-data] [--platform <platform>] [--out <dir>]
@@ -81,6 +87,34 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
     OUTPUT_DIR="$(pwd)/$OUTPUT_DIR"
 fi
 
+if [[ -n "$PLATFORM" ]]; then
+    PLATFORMS=("$PLATFORM")
+else
+    PLATFORMS=(darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64 windows-arm64)
+fi
+
+missing=()
+for platform in "${PLATFORMS[@]}"; do
+    native_platform="${platform/windows-/win32-}"
+    if [[ "$platform" == windows-* ]]; then
+        helper="packages/coding-agent/native/process/${native_platform}/axiom-process.exe"
+        if [[ ! -s "$helper" ]]; then
+            missing+=("$helper")
+        fi
+    else
+        helper="packages/coding-agent/native/process/${native_platform}/axiom-process"
+        if [[ ! -s "$helper" || ! -x "$helper" ]]; then
+            missing+=("$helper")
+        fi
+    fi
+done
+if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Missing or non-executable native process helpers:" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    echo "Stage prebuilt helpers before packaging. A local bun run build only produces the host helper." >&2
+    exit 1
+fi
+
 if [[ "$SKIP_INSTALL" == "false" ]]; then
     echo "==> Installing dependencies..."
     bun install --ignore-scripts
@@ -100,19 +134,13 @@ else
     echo "==> Skipping package build (--skip-build)"
 fi
 
+
 echo "==> Building binaries..."
 cd packages/coding-agent
 
 # Clean previous builds
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"/{darwin-arm64,darwin-x64,linux-x64,linux-arm64,windows-x64,windows-arm64}
-
-# Determine which platforms to build
-if [[ -n "$PLATFORM" ]]; then
-    PLATFORMS=("$PLATFORM")
-else
-    PLATFORMS=(darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64 windows-arm64)
-fi
 
 for platform in "${PLATFORMS[@]}"; do
     echo "Building for $platform..."
@@ -158,6 +186,8 @@ for platform in "${PLATFORMS[@]}"; do
     native_path="native/${native_platform%-*}/prebuilds"
     mkdir -p "$OUTPUT_DIR/$platform/$native_path"
     cp -R "../tui/$native_path/$native_platform" "$OUTPUT_DIR/$platform/$native_path/"
+    mkdir -p "$OUTPUT_DIR/$platform/native/process"
+    cp -R "native/process/$native_platform" "$OUTPUT_DIR/$platform/native/process/"
 done
 
 # Create archives

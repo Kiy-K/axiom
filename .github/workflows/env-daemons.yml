@@ -73,6 +73,8 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/pi-env-${{ matrix.name }}"
           cp "target/${{ matrix.target }}/release/pi-env$suffix" "$GITHUB_WORKSPACE/pi-env-${{ matrix.name }}/pi-env$suffix"
           ls -l "$GITHUB_WORKSPACE/pi-env-${{ matrix.name }}"
+          mkdir -p "$GITHUB_WORKSPACE/axiom-process-${{ matrix.name }}"
+          cp "target/${{ matrix.target }}/release/axiom-process$suffix" "$GITHUB_WORKSPACE/axiom-process-${{ matrix.name }}/axiom-process$suffix"
 
       - name: Run the native build
         if: ${{ !matrix.android && !(matrix.target == 'x86_64-apple-darwin') }}
@@ -86,4 +88,12 @@ jobs:
         with:
           name: pi-env-${{ matrix.name }}
           path: pi-env-${{ matrix.name }}
+          if-no-files-found: error
+
+      - name: Upload retained process helper
+        # Android binaries are uploaded but not executed here.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: axiom-process-${{ matrix.name }}
+          path: axiom-process-${{ matrix.name }}
           if-no-files-found: error

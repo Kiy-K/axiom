@@ -8,6 +8,7 @@
   makeWrapper,
   nodejs_22,
   ripgrep,
+  rustPlatform,
   source,
   stdenv,
   wl-clipboard,
@@ -29,6 +30,18 @@ let
     sha256 = lib.removePrefix "sha256-" modelCatalogPin.revision;
   };
 
+  processHelper = rustPlatform.buildRustPackage {
+    pname = "axiom-process";
+    inherit (packageJson) version;
+    src = source;
+    cargoRoot = "packages/env/daemon";
+    # cargoRoot only locates Cargo.lock; cargo build stays at the source root without this.
+    buildAndTestSubdir = "packages/env/daemon";
+    cargoLock.lockFile = source + "/packages/env/daemon/Cargo.lock";
+    cargoBuildFlags = [ "--bin" "axiom-process" ];
+    doCheck = false;
+  };
+
   workspacePackages = stdenv.mkDerivation {
     pname = "pi-workspace-packages";
     inherit (packageJson) version;
@@ -45,6 +58,10 @@ let
     buildPhase = ''
       runHook preBuild
       node packages/ai/scripts/hydrate-model-catalog.ts ${modelCatalog}
+      helper_platform="$(node -p 'process.platform + "-" + process.arch')"
+      mkdir -p "packages/coding-agent/native/process/$helper_platform"
+      cp ${processHelper}/bin/axiom-process "packages/coding-agent/native/process/$helper_platform/axiom-process"
+      export AXIOM_NATIVE_PROCESS_PREBUILT=1
       npm run build:offline
       runHook postBuild
     '';

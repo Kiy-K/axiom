@@ -27,8 +27,11 @@ on:
       - 'package-lock.json'
       - 'packages/*/package.json'
       - 'packages/coding-agent/install-lock/**'
+      - 'packages/coding-agent/src/config.ts'
+      - 'packages/env/daemon/**'
       - 'packages/ai/scripts/hydrate-model-catalog.ts'
       - 'scripts/update-model-catalog-pin.mjs'
+      - 'scripts/build-native-process.mjs'
   workflow_run:
     workflows:
       - Publish Model Catalog

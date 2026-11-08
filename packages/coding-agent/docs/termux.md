@@ -2,6 +2,8 @@
 
 Pi runs on Android through [Termux](https://termux.dev/), a terminal emulator and Linux environment. Text input, file tools, and shell commands are supported. Pi can copy and paste text through the Android clipboard with Termux:API. Clipboard image paste is not supported.
 
+Preview and npm packages ship `native/process/android-arm64/axiom-process` and `native/process/android-x64/axiom-process`. Running those binaries on Termux has not been verified. Without process-group pidfds, the helper fallback retains the helper when group membership cannot be proven empty; completed jobs can accumulate helpers and zombies until session cleanup.
+
 ## Before you begin
 
 Install Termux from [GitHub or F-Droid](https://github.com/termux/termux-app#installation). Do not use the deprecated Google Play build.

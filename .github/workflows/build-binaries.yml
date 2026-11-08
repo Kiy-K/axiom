@@ -25,8 +25,10 @@ jobs:
   # Keep the public GitHub Release publication last. Binary assets are staged in
   # a draft release first; cleanup removes the draft if later publishing fails.
   build:
+    needs: env-daemons
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -63,6 +65,12 @@ jobs:
             --ref HEAD \
             --out "release-assets/pi-${VERSION}-source.tar.gz"
 
+      - name: Download retained process helpers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: axiom-process-*
+          path: process-helpers
+
       - name: Build binaries from source archive
         run: |
           set -euo pipefail
@@ -71,6 +79,21 @@ jobs:
           build_root="$(mktemp -d)"
           trap 'rm -rf "${build_root}"' EXIT
           tar -xzf "release-assets/pi-${VERSION}-source.tar.gz" -C "${build_root}"
+          mkdir -p "${build_root}/pi-${VERSION}/packages/coding-agent/native/process"
+          for dir in process-helpers/axiom-process-*; do
+            platform="${dir##*/axiom-process-}"
+            platform="${platform/windows-/win32-}"
+            cp -R "$dir" "${build_root}/pi-${VERSION}/packages/coding-agent/native/process/$platform"
+            chmod +x "${build_root}/pi-${VERSION}/packages/coding-agent/native/process/$platform/"*
+          done
+          root="${build_root}/pi-${VERSION}/packages/coding-agent/native/process"
+          for platform in linux-x64 linux-arm64 darwin-x64 darwin-arm64 android-arm64 android-x64; do
+            test -s "$root/$platform/axiom-process"
+            test -x "$root/$platform/axiom-process"
+          done
+          for platform in win32-x64 win32-arm64; do
+            test -s "$root/$platform/axiom-process.exe"
+          done
           "${build_root}/pi-${VERSION}/scripts/build-binaries.sh" \
             --offline-model-data \
             --out "${GITHUB_WORKSPACE}/packages/coding-agent/binaries"
@@ -206,6 +229,38 @@ jobs:
           "${{ steps.binary.outputs.binary }}" --help
           "${{ steps.binary.outputs.binary }}" --version
           node scripts/smoke-test-codemode-binary.mjs "${{ steps.binary.outputs.binary }}"
+          helper="${{ steps.binary.outputs.root }}/native/process/$(node -p '`${process.platform}-${process.arch}`')/axiom-process"
+          if [ "$(node -p process.platform)" = win32 ]; then
+            helper="${helper}.exe"
+          fi
+          test -s "$helper"
+          node scripts/smoke-test-process-helper.mjs "$helper"
+
+      - name: Check every standalone archive contains its helper
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import tarfile, zipfile
+          expected = {
+              "release-assets/axiom-linux-x64.tar.gz": "axiom/native/process/linux-x64/axiom-process",
+              "release-assets/axiom-linux-arm64.tar.gz": "axiom/native/process/linux-arm64/axiom-process",
+              "release-assets/axiom-darwin-x64.tar.gz": "axiom/native/process/darwin-x64/axiom-process",
+              "release-assets/axiom-darwin-arm64.tar.gz": "axiom/native/process/darwin-arm64/axiom-process",
+              "release-assets/axiom-windows-x64.zip": "native/process/win32-x64/axiom-process.exe",
+              "release-assets/axiom-windows-arm64.zip": "native/process/win32-arm64/axiom-process.exe",
+          }
+          for archive, name in expected.items():
+              if archive.endswith(".zip"):
+                  with zipfile.ZipFile(archive) as zf:
+                      size = zf.getinfo(name).file_size
+              else:
+                  with tarfile.open(archive) as tf:
+                      size = tf.getmember(name).size
+              if size == 0:
+                  raise SystemExit(f"empty helper in {archive}: {name}")
+          print("standalone archives contain helpers")
+          PY
 
   stage-github-release:
     runs-on: ubuntu-latest
@@ -315,6 +370,7 @@ jobs:
     environment: npm-publish
     permissions:
       contents: read
+      actions: read
       id-token: write
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -364,6 +420,30 @@ jobs:
           chmod +x packages/env/bin/*/pi-env*
           ls -lR packages/env/bin
 
+      - name: Download retained process helpers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: axiom-process-*
+          path: process-helpers
+
+      - name: Install retained process helpers
+        run: |
+          set -euo pipefail
+          mkdir -p packages/coding-agent/native/process
+          for dir in process-helpers/axiom-process-*; do
+            platform="${dir##*/axiom-process-}"
+            platform="${platform/windows-/win32-}"
+            cp -R "$dir" "packages/coding-agent/native/process/$platform"
+            chmod +x "packages/coding-agent/native/process/$platform/"*
+          done
+          for platform in linux-x64 linux-arm64 darwin-x64 darwin-arm64 android-arm64 android-x64; do
+            test -s "packages/coding-agent/native/process/$platform/axiom-process"
+            test -x "packages/coding-agent/native/process/$platform/axiom-process"
+          done
+          for platform in win32-x64 win32-arm64; do
+            test -s "packages/coding-agent/native/process/$platform/axiom-process.exe"
+          done
+
       - name: Build
         run: bun run build
 
@@ -378,6 +458,17 @@ jobs:
 
       - name: Smoke-test packed npm consumer
         run: bun run check:package-install
+
+      - name: Smoke packed coding-agent helpers
+        run: |
+          set -euo pipefail
+          # Executes the host helper from the tarball. Android binaries are presence-checked only.
+          dest="$(mktemp -d)"
+          ( cd packages/coding-agent && npm pack --ignore-scripts --json --pack-destination "$dest" > "$dest/pack.json" )
+          file="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const info=Array.isArray(p)?p[0]:Object.values(p)[0]; if(!info||typeof info.filename!=="string") process.exit(1); process.stdout.write(info.filename)' "$dest/pack.json")"
+          mkdir -p "$dest/extract"
+          tar -xzf "$dest/$file" -C "$dest/extract"
+          node scripts/smoke-test-process-helper.mjs --require-all "$dest/extract/package"
 
       - name: Upgrade npm for trusted publishing
         run: |

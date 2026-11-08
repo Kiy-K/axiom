@@ -1,5 +1,5 @@
 import type { Model, OAuthCredential, Provider } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	AgentSessionRuntime,
 	type AgentSessionServices,
@@ -61,7 +61,7 @@ describe("regression #11692: OAuth refresh in flight at shutdown", () => {
 		}
 	});
 
-	it("dispose waits until the rotated token from a background catalog refresh is saved", async () => {
+	it.each([false, true])("saves a rotated token during dispose (job cleanup fails: %s)", async (cleanupFails) => {
 		const credentials = AuthStorage.inMemory({
 			[providerId]: { type: "oauth", access: "old-access", refresh: "old-refresh", expires: Date.now() - 1000 },
 		});
@@ -85,6 +85,8 @@ describe("regression #11692: OAuth refresh in flight at shutdown", () => {
 
 		const harness = await createHarness();
 		harnesses.push(harness);
+		const cleanupError = new Error("Job cleanup could not be confirmed");
+		if (cleanupFails) vi.spyOn(harness.session, "stopJobs").mockRejectedValue(cleanupError);
 		const services: AgentSessionServices = {
 			cwd: harness.tempDir,
 			agentDir: harness.tempDir,
@@ -103,14 +105,21 @@ describe("regression #11692: OAuth refresh in flight at shutdown", () => {
 		await refreshStarted;
 
 		let disposed = false;
-		const disposing = runtime.dispose().then(() => {
-			disposed = true;
-		});
+		const disposing = runtime.dispose().then(
+			() => {
+				disposed = true;
+				return undefined;
+			},
+			(error: unknown) => {
+				disposed = true;
+				return error;
+			},
+		);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(disposed).toBe(false);
 
 		respond();
-		await disposing;
+		expect(await disposing).toBe(cleanupFails ? cleanupError : undefined);
 		expect(await credentials.read(providerId)).toMatchObject({ access: "new-access", refresh: "new-refresh" });
 		await catalogRefresh;
 	});
