@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { STOP_GRACE_MS } from "../src/core/jobs/managed-job.ts";
 import { findOrphanedJobs } from "../src/core/jobs/registry.ts";
-import { JobSupervisor, MAX_RUNNING_JOBS, type PrepareRequest } from "../src/core/jobs/supervisor.ts";
+import {
+	JobSupervisor,
+	MAX_RUNNING_JOBS,
+	MAX_UNPROVEN_GROUPS,
+	type PrepareRequest,
+} from "../src/core/jobs/supervisor.ts";
 import type { BashOperations } from "../src/core/tools/bash.ts";
 
 const OWNER = "owner-a";
@@ -81,6 +86,22 @@ describe("JobSupervisor", () => {
 		expect(supervisor.adopt(job)).toBe(true);
 		expect(supervisor.list(OWNER).map((listed) => listed.jobId)).toEqual([job.jobId]);
 		expect(() => supervisor.status(job.jobId, "someone-else")).toThrow("Unknown job");
+	});
+
+	// Regression coverage for roadmap issue #1: ownership applies to every operation, not just status.
+	it("rejects foreign owners for output, input and stop without affecting the job", async () => {
+		const { operations, runs } = fakeOperations();
+		const supervisor = new JobSupervisor();
+		const job = supervisor.start(request(operations, "private"));
+		await flush();
+		expect(supervisor.list("owner-b")).toEqual([]);
+		expect(() => supervisor.output(job.jobId, "owner-b", undefined, 128)).toThrow("Unknown job");
+		await expect(supervisor.sendInput(job.jobId, "owner-b", "hello")).rejects.toThrow("Unknown job");
+		await expect(supervisor.stop(job.jobId, "owner-b", { announce: false })).rejects.toThrow("Unknown job");
+		expect(supervisor.status(job.jobId, OWNER).state).toBe("running");
+		runOf(runs, "private").resolve(7);
+		await job.settled;
+		expect(supervisor.status(job.jobId, OWNER)).toMatchObject({ state: "failed", exitCode: 7 });
 	});
 
 	it("refuses adoption at the running limit and leaves the command in the foreground", async () => {
@@ -625,6 +646,73 @@ describe("JobSupervisor", () => {
 		expect(closes).toBe(1);
 		supervisor.killSession(OWNER);
 		expect(closes).toBe(1);
+	});
+
+	describe("retained groups that cannot be proved empty", () => {
+		/** Operations whose executions finish on demand; each handle reports whether its helper can prove emptiness. */
+		function heldGroups(canProveEmpty: boolean) {
+			const cleanups: number[] = [];
+			const finishers: Array<() => void> = [];
+			const operations: BashOperations = {
+				exec: (_command, _cwd, options) => {
+					const index = finishers.length;
+					const outcome = Promise.withResolvers<{ exitCode: number | null }>();
+					finishers.push(() => outcome.resolve({ exitCode: 0 }));
+					options.onHandle?.({
+						pid: FAKE_PID + index,
+						canProveEmpty,
+						signal: () => {},
+						close: () => {},
+						cleanup: () => {
+							cleanups.push(index);
+						},
+					});
+					return outcome.promise;
+				},
+			};
+			return { cleanups, finishers, operations };
+		}
+
+		it("keeps the newest MAX_UNPROVEN_GROUPS finished groups, ordered by when they finished", async () => {
+			const { cleanups, finishers, operations } = heldGroups(false);
+			const supervisor = new JobSupervisor();
+			const jobs = Array.from({ length: MAX_UNPROVEN_GROUPS + 1 }, (_, i) =>
+				supervisor.prepare(request(operations, `command-${i}`)),
+			);
+			await flush();
+			// The first-prepared job finishes last, so it must not be the one killed.
+			for (let i = 1; i < jobs.length; i++) {
+				finishers[i]?.();
+				await jobs[i]?.settled;
+			}
+			expect(cleanups).toEqual([]);
+			finishers[0]?.();
+			await jobs[0]?.settled;
+			expect(cleanups).toEqual([1]);
+		});
+
+		it("spares running jobs and groups whose helper can prove emptiness", async () => {
+			const proved = heldGroups(true);
+			const supervisor = new JobSupervisor();
+			const jobs = Array.from({ length: MAX_UNPROVEN_GROUPS + 4 }, (_, i) =>
+				supervisor.prepare(request(proved.operations, `proved-${i}`)),
+			);
+			await flush();
+			for (const finish of proved.finishers) finish();
+			await Promise.all(jobs.map((job) => job.settled));
+			expect(proved.cleanups).toEqual([]);
+
+			const unproved = heldGroups(false);
+			const running = supervisor.prepare(request(unproved.operations, "running"));
+			for (let i = 0; i < MAX_UNPROVEN_GROUPS + 1; i++) {
+				const job = supervisor.prepare(request(unproved.operations, `done-${i}`));
+				await flush();
+				unproved.finishers[i + 1]?.();
+				await job.settled;
+			}
+			expect(running.state).toBe("running");
+			expect(unproved.cleanups).toEqual([1]);
+		});
 	});
 
 	it("waits for execution settlement before releasing an already-empty group", async () => {

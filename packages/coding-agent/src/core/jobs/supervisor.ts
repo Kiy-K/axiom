@@ -12,6 +12,12 @@ import { findOrphanedJobs, forgetJob, type JobRecord, recordJob } from "./regist
 
 export const MAX_RUNNING_JOBS = 8;
 const MAX_FINISHED_JOBS = 16;
+/**
+ * Finished jobs per session whose helper may stay alive. Where the kernel cannot prove a group empty (no
+ * process-group pidfd), every finished job keeps a helper, a zombie leader and three pipes until closed; past
+ * this bound the oldest groups are killed and released.
+ */
+export const MAX_UNPROVEN_GROUPS = 16;
 /** Time allowed after the grace period before a stop reports `settled: false`. */
 const STOP_WAIT_EXTRA_MS = 2_000;
 /** Allow the helper's five-second cleanup confirmation window and IPC delivery. */
@@ -51,6 +57,8 @@ export class JobSupervisor {
 	/** Finish sequence, so eviction keeps recently finished jobs rather than recently adopted ones. */
 	private readonly finishOrder = new Map<string, number>();
 	private nextFinishOrder = 0;
+	/** Settle sequence of every job, adopted or not, so the bound drops the longest-finished groups first. */
+	private readonly settleOrder = new WeakMap<ManagedJob, number>();
 	/** User stops whose finish notice a model stop must not clear. */
 	private readonly userAnnounced = new Set<string>();
 	/** Model stops that have hidden the finish notice until they know whether the job settled. */
@@ -282,15 +290,28 @@ export class JobSupervisor {
 	}
 
 	private handleSettled(job: ManagedJob): void {
+		this.settleOrder.set(job, this.nextFinishOrder++);
 		if (!job.adopted) {
 			if (!job.hasHandle && !job.handleLost) this.ownedJobs.get(job.owner)?.delete(job);
+			this.boundUnprovenGroups(job.owner);
 			return;
 		}
-		this.finishOrder.set(job.jobId, this.nextFinishOrder++);
+		this.finishOrder.set(job.jobId, this.nextFinishOrder - 1);
 		if (job.announce && !job.launchFailed) {
 			for (const listener of this.finishedListeners.get(job.owner) ?? []) listener(job);
 		}
 		this.evictFinished();
+		this.boundUnprovenGroups(job.owner);
+	}
+
+	/**
+	 * Kills and releases the groups that finished longest ago beyond MAX_UNPROVEN_GROUPS. The helper still pins
+	 * the group, so the signal is safe. The job stays owned: session teardown still reports unconfirmed cleanup.
+	 */
+	private boundUnprovenGroups(owner: string): void {
+		const retained = [...(this.ownedJobs.get(owner) ?? [])].filter((job) => job.retainsUnprovenGroup);
+		retained.sort((a, b) => (this.settleOrder.get(a) ?? 0) - (this.settleOrder.get(b) ?? 0));
+		for (const job of retained.slice(0, Math.max(0, retained.length - MAX_UNPROVEN_GROUPS))) job.killNow();
 	}
 
 	private forgetRecord(jobId: string): void {

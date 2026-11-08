@@ -1,17 +1,50 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { accessSync, constants, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { release, tmpdir } from "node:os";
+import {
+	accessSync,
+	closeSync,
+	constants,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	openSync,
+	readFileSync,
+	readSync,
+	rmSync,
+	writeFileSync,
+	writeSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { getNativeProcessHelperPath } from "../src/config.ts";
 import { JobSupervisor } from "../src/core/jobs/supervisor.ts";
 import { type BashOperations, createBashTool, createLocalBashOperations } from "../src/core/tools/bash.ts";
+import { executeNativeProcess } from "../src/core/tools/native-process.ts";
+import { getShellConfig } from "../src/utils/shell.ts";
 
 type Handle = Parameters<NonNullable<Parameters<BashOperations["exec"]>[2]["onHandle"]>>[0];
-const [kernelMajor = 0, kernelMinor = 0] = release().split(".").map(Number);
-const hasGroupPidfd = process.platform === "linux" && (kernelMajor > 6 || (kernelMajor === 6 && kernelMinor >= 9));
+// Real helper probe: the group is only provably empty where the kernel and sandbox allow process-group pidfds.
+async function probeGroupPidfd(): Promise<boolean> {
+	if (process.platform !== "linux") return false;
+	const helper = spawn(getNativeProcessHelperPath(), [], { stdio: ["pipe", "pipe", "ignore"] });
+	helper.on("error", () => {});
+	helper.stdin.on("error", () => {});
+	let seen = "";
+	helper.stdout.on("data", (chunk: Buffer) => {
+		seen += chunk.toString("latin1");
+	});
+	helper.stdin.write(
+		`${JSON.stringify({ type: "start", command: "/bin/sh", args: ["-c", "exit 0"], cwd: "/", env: {}, stdin: false })}\n`,
+	);
+	// The spawn frame states the capability directly; the `empty` event is behavior these tests check, so it must not gate them.
+	const found = await until(() => seen.includes('"proves_empty":true'), 5_000);
+	helper.kill("SIGKILL");
+	return found;
+}
+
+const hasGroupPidfd = await probeGroupPidfd();
 
 // Real process exit and signal delivery cannot be driven by fake timers.
 async function until(predicate: () => boolean, ms = 5_000): Promise<boolean> {
@@ -247,6 +280,133 @@ describe.skipIf(process.platform !== "linux")("native shell process lifecycle", 
 		},
 		10_000,
 	);
+
+	it.skipIf(!hasGroupPidfd)(
+		"bounds cleanup when its confirmation and diagnostic output are blocked",
+		async () => {
+			const cwd = mkdtempSync(join(tmpdir(), "axiom-confirm-"));
+			const fds: number[] = [];
+			let helper: ChildProcess | undefined;
+			try {
+				const outputPath = join(cwd, "output");
+				execFileSync("mkfifo", [outputPath]);
+				const reader = openSync(outputPath, constants.O_RDONLY | constants.O_NONBLOCK);
+				fds.push(reader);
+				const output = openSync(outputPath, constants.O_WRONLY);
+				fds.push(output);
+				const filler = openSync(outputPath, constants.O_WRONLY | constants.O_NONBLOCK);
+				fds.push(filler);
+				helper = spawn(getNativeProcessHelperPath(), [], { stdio: ["pipe", output, output] });
+				const stdin = helper.stdin!;
+				stdin.on("error", () => {});
+				let exited = false;
+				helper.on("exit", () => {
+					exited = true;
+				});
+				stdin.write(
+					`${JSON.stringify({
+						type: "start",
+						command: "/bin/sh",
+						args: ["-c", "exit 0"],
+						cwd,
+						env: process.env,
+						stdin: false,
+					})}\n`,
+				);
+				let frames: Buffer = Buffer.alloc(0);
+				let empty = false;
+				const chunk = Buffer.alloc(4096);
+				expect(
+					await until(() => {
+						try {
+							const n = readSync(reader, chunk, 0, chunk.length, null);
+							frames = Buffer.concat([frames, chunk.subarray(0, n)]);
+						} catch (error) {
+							if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error;
+						}
+						while (frames.length >= 5 && frames.length >= frames.readUInt32BE(1) + 5) {
+							const length = frames.readUInt32BE(1);
+							if (frames[0] === 74 && JSON.parse(frames.subarray(5, length + 5).toString()).type === "empty") {
+								empty = true;
+							}
+							frames = frames.subarray(length + 5);
+						}
+						return empty;
+					}),
+				).toBe(true);
+				for (const bytes of [Buffer.alloc(4096), Buffer.alloc(1)]) {
+					for (;;) {
+						try {
+							writeSync(filler, bytes);
+						} catch (error) {
+							if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error;
+							break;
+						}
+					}
+				}
+				const started = performance.now();
+				stdin.write('{"type":"cleanup"}\n');
+				expect(await until(() => exited, 7_000)).toBe(true);
+				expect(performance.now() - started).toBeGreaterThanOrEqual(4_000);
+				expect(helper.exitCode).toBe(1);
+			} finally {
+				helper?.kill("SIGKILL");
+				helper?.stdin?.destroy();
+				for (const fd of fds) closeSync(fd);
+				rmSync(cwd, { recursive: true, force: true });
+			}
+		},
+		12_000,
+	);
+
+	describe("a helper that never reports its spawn", () => {
+		// A script that ignores the protocol stands in for a helper blocked inside spawn.
+		async function withStalledHelper(run: () => Promise<void>): Promise<void> {
+			const packageDir = mkdtempSync(join(tmpdir(), "axiom-stalled-"));
+			const original = process.env.PI_PACKAGE_DIR;
+			try {
+				const helperDir = join(packageDir, "native", "process", `${process.platform}-${process.arch}`);
+				mkdirSync(helperDir, { recursive: true });
+				writeFileSync(join(helperDir, "axiom-process"), "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+				process.env.PI_PACKAGE_DIR = packageDir;
+				await run();
+			} finally {
+				if (original === undefined) delete process.env.PI_PACKAGE_DIR;
+				else process.env.PI_PACKAGE_DIR = original;
+				rmSync(packageDir, { recursive: true, force: true });
+			}
+		}
+		const request = {
+			command: "true",
+			cwd: process.cwd(),
+			env: process.env,
+			shell: getShellConfig(),
+			onData: () => {},
+		};
+
+		it("is killed after the grace period when the command is aborted", async () => {
+			await withStalledHelper(async () => {
+				const controller = new AbortController();
+				const started = performance.now();
+				const execution = executeNativeProcess({ ...request, signal: controller.signal });
+				setTimeout(() => controller.abort(), 100);
+				await expect(execution).rejects.toThrow("aborted");
+				expect(performance.now() - started).toBeGreaterThanOrEqual(4_500);
+				expect(performance.now() - started).toBeLessThan(10_500);
+			});
+		}, 12_000);
+
+		it("is killed after the grace period when the command times out", async () => {
+			await withStalledHelper(async () => {
+				const started = performance.now();
+				await expect(executeNativeProcess({ ...request, timeoutMs: 100 })).rejects.toThrow(
+					"Native command timed out",
+				);
+				expect(performance.now() - started).toBeGreaterThanOrEqual(4_500);
+				expect(performance.now() - started).toBeLessThan(10_500);
+			});
+		}, 12_000);
+	});
 
 	it("cleans up descendants of a nested foreground command when the session closes", async () => {
 		const supervisor = new JobSupervisor();

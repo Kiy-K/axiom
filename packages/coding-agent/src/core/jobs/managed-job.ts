@@ -313,6 +313,17 @@ export class ManagedJob {
 		return this.handle !== undefined;
 	}
 
+	/** A finished job whose helper is held because the platform cannot prove its group empty. */
+	get retainsUnprovenGroup(): boolean {
+		return (
+			this.stateValue !== "running" &&
+			this.handle?.canProveEmpty === false &&
+			!this.groupEmpty &&
+			!this.closed &&
+			!this.handleLost
+		);
+	}
+
 	get handleLost(): boolean {
 		return this.lostHandle || this.handle?.lost === true;
 	}

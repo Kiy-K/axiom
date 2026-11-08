@@ -161,17 +161,49 @@ describe("runSupervisedCommand", () => {
 
 	it("becomes a background job at 10 seconds without restarting the command", async () => {
 		const { operations, runs } = fakeOperations();
+		const exec = vi.spyOn(operations, "exec");
+		const notices: string[] = [];
+		supervisor.onFinished(OWNER, (job) => notices.push(job.jobId));
 		const run = call(operations, "build");
 		await flush();
+		exec.mock.calls[0][2].onData(Buffer.from("before\n"));
 		await vi.advanceTimersByTimeAsync(YIELD_AFTER_MS);
 		const outcome = await run;
 		expect(outcome.kind).toBe("yielded");
 		if (outcome.kind !== "yielded") return;
 		expect(outcome.job.state).toBe("running");
+		expect(outcome.job.log.read(undefined, 1024).text).toBe("before\n");
+		exec.mock.calls[0][2].onData(Buffer.from("after\n"));
 		expect(supervisor.list(OWNER).map((job) => job.jobId)).toEqual([outcome.job.jobId]);
 		runOf(runs, "build").resolve(0);
 		await outcome.job.settled;
+		expect(outcome.job.log.read(undefined, 1024).text).toBe("before\nafter\n");
+		expect(exec).toHaveBeenCalledTimes(1);
+		expect(notices).toEqual([outcome.job.jobId]);
 		expect(outcome.job.state).toBe("completed");
+	});
+
+	// Regression for roadmap issue #1: settlement on the threshold must not create a duplicate job.
+	it("finishes in the foreground when completion wins on the 10-second tick", async () => {
+		const { operations, runs } = fakeOperations();
+		setTimeout(() => runOf(runs, "boundary-finish").resolve(0), YIELD_AFTER_MS);
+		const run = call(operations, "boundary-finish");
+		await flush();
+		await vi.advanceTimersByTimeAsync(YIELD_AFTER_MS);
+		await expect(run).resolves.toEqual({ kind: "finished", exitCode: 0 });
+		expect(supervisor.list(OWNER)).toEqual([]);
+	});
+
+	// Regression for roadmap issue #1: cancellation on the yield tick must not return a live handle.
+	it("aborts instead of yielding when cancellation arrives on the 10-second tick", async () => {
+		const { operations } = fakeOperations();
+		const controller = new AbortController();
+		const pending = call(operations, "boundary-abort", { signal: controller.signal });
+		await flush();
+		vi.advanceTimersByTime(YIELD_AFTER_MS);
+		controller.abort();
+		await expect(pending).rejects.toThrow("aborted");
+		expect(supervisor.list(OWNER)).toEqual([]);
 	});
 
 	it("stays in the foreground at the threshold when the running limit is full", async () => {
@@ -255,6 +287,29 @@ const toolContext = {
 } as never;
 
 describe("bash tool with a supervisor", () => {
+	// Regression for roadmap issue #1: supervision must preserve top-level foreground results.
+	it("preserves top-level foreground output and exit status with supervision", async () => {
+		const { operations, runs } = fakeOperations();
+		const exec = vi.spyOn(operations, "exec");
+		const supervisor = new JobSupervisor();
+		const tool = createBashToolDefinition("/tmp", { operations, jobs: { supervisor, owner: () => OWNER } });
+		for (const code of [0, 3]) {
+			const command = `foreground-${code}`;
+			const pending = tool.execute(command, { command }, undefined, undefined, toolContext);
+			await flush();
+			exec.mock.calls[code === 0 ? 0 : 1][2].onData(Buffer.from("hello\n"));
+			runOf(runs, command).resolve(code);
+			const result = await pending;
+			expect(result.content[0]).toMatchObject({
+				type: "text",
+				text: code === 0 ? "hello\n" : "hello\n\n\nCommand exited with code 3",
+			});
+			expect(result.structuredContent).toMatchObject({ output: "hello\n", exit_code: code });
+			expect(result.isError).toBe(code === 0 ? undefined : true);
+		}
+		expect(supervisor.list(OWNER)).toEqual([]);
+	});
+
 	it("never yields a command run by a script, so its result keeps exit_code", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		try {

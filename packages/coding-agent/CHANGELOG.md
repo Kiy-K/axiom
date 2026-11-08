@@ -29,6 +29,10 @@
 
 ### Fixed
 
+- Fixed the Linux process helper remaining blocked on a cleanup confirmation when its output pipe is full. Cleanup that cannot be confirmed still retains its crash record where available.
+- Fixed a stop or timeout hanging when the native process helper never reported its spawn: the helper is now killed 5 seconds after the request.
+- Fixed finished shell commands keeping a helper process and three pipes each for the whole session where the kernel cannot prove a process group empty (before Linux 6.9, macOS, Android). The oldest finished groups beyond 16 are now killed and released.
+
 - Fixed the replace `edit` tool rewriting line endings on untouched lines of a mixed-ending file: each line keeps its own `\r\n` or `\n`, and an added line takes its neighbour's ending. Before, the first line's ending was applied to the whole file.
 - Fixed hashline refusing a line ID whose number was right but whose hash belonged to a neighbouring line: the refusal now names the line that hash belongs to. An empty `tag` is refused before the stale-recovery path, so it no longer returns file lines.
 - Fixed hashline `read` loading a whole file into memory before checking the hashline size limit. Files over the limit are now streamed, as plain `read` does, and get no file tag.

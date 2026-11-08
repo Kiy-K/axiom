@@ -67,6 +67,8 @@ export interface NativeProcessHandle {
 	pid: number;
 	signal(signal: "term" | "kill"): void;
 	readonly lost?: boolean;
+	/** False when the helper cannot prove the group empty (no process-group pidfd); the group is then held until closed. */
+	readonly canProveEmpty?: boolean;
 	onLost?(listener: () => void): void;
 	onEmpty?(listener: () => void): void;
 	/** Fires once the helper has confirmed the group is empty after cleanup. */

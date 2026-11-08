@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { JobSupervisor } from "../src/core/jobs/supervisor.ts";
 import { createLocalBashOperations } from "../src/core/tools/bash.ts";
+import { createJobToolDefinition } from "../src/core/tools/job.ts";
 import { isProcessGroupAlive } from "../src/utils/shell.ts";
 
 const OWNER = "owner-real";
@@ -56,6 +57,35 @@ describe("background jobs with the local shell", () => {
 		expect(result.job.state).toBe("stopped");
 	});
 
+	// Regression for roadmap issue #1: the model-facing action must reach the actual stdin pipe.
+	it("delivers send_input from the job tool to a real shell", async () => {
+		const supervisor = new JobSupervisor();
+		const job = supervisor.start(request("read line; printf 'received:%s\\n' \"$line\"", true));
+		const tool = createJobToolDefinition({ supervisor, owner: () => OWNER });
+		try {
+			await job.launched;
+			const sent = await tool.execute(
+				"input",
+				{ action: "send_input", job_id: job.jobId, input: "hello\n" },
+				undefined,
+				undefined,
+				undefined as never,
+			);
+			expect(sent.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("Sent 6 bytes") });
+			await job.settled;
+			const result = await tool.execute(
+				"output",
+				{ action: "output", job_id: job.jobId },
+				undefined,
+				undefined,
+				undefined as never,
+			);
+			expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("received:hello") });
+		} finally {
+			supervisor.killSession(OWNER);
+		}
+	});
+
 	it("stops a well-behaved job with SIGTERM well inside the grace period", async () => {
 		const supervisor = new JobSupervisor();
 		const job = supervisor.start(request("sleep 30"));
@@ -80,6 +110,21 @@ describe("background jobs with the local shell", () => {
 		expect(Date.now() - started).toBeGreaterThanOrEqual(2_500);
 		supervisor.killSession(OWNER);
 		expect(await until(() => !isProcessGroupAlive(pid as number), 2_000)).toBe(true);
+	}, 20_000);
+
+	// Regression for roadmap issue #1: session shutdown must escalate without a separate killSession call.
+	it("kills a TERM-ignoring process group during session shutdown", async () => {
+		const supervisor = new JobSupervisor();
+		const job = supervisor.start(request("trap '' TERM; echo ready; sleep 30"));
+		try {
+			expect(await until(() => job.log.read(undefined, 1024).text.includes("ready"), 5_000)).toBe(true);
+			const pid = job.pid;
+			expect(pid).toEqual(expect.any(Number));
+			await supervisor.stopSession(OWNER);
+			expect(await until(() => !isProcessGroupAlive(pid as number), 5_000)).toBe(true);
+		} finally {
+			await supervisor.stopSession(OWNER);
+		}
 	}, 20_000);
 
 	it("cleans a descendant of a completed foreground command at session close", async () => {

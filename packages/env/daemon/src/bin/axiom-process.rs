@@ -94,7 +94,6 @@ pub(crate) fn wait_for_output(output: &Output) {
 #[cfg(unix)]
 mod platform {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::os::unix::process::CommandExt;
     #[cfg(target_os = "linux")]
@@ -104,7 +103,7 @@ mod platform {
     #[derive(Clone)]
     pub struct Target {
         pid: u32,
-        armed: Arc<AtomicBool>,
+        armed: Arc<Mutex<bool>>,
         #[cfg(target_os = "linux")]
         pidfd: Option<Arc<OwnedFd>>,
     }
@@ -112,16 +111,22 @@ mod platform {
     impl Group { pub fn target(&self) -> Target { self.target.clone() } }
     impl Drop for Group {
         fn drop(&mut self) {
-            if self.target.armed.swap(false, Ordering::AcqRel) { let _ = signal(self, "kill"); }
+            let mut armed = self.target.armed.lock().unwrap_or_else(|error| error.into_inner());
+            if *armed { *armed = false; let _ = signal(self, "kill"); }
         }
     }
     pub fn release(group: &mut Group) -> io::Result<()> {
-        group.target.armed.swap(false, Ordering::AcqRel);
+        *group.target.armed.lock().unwrap_or_else(|error| error.into_inner()) = false;
         Ok(())
     }
     pub fn abandon(target: &Target) -> ! {
-        if target.armed.swap(false, Ordering::AcqRel) { let _ = signal_target(target, "kill"); }
-        std::process::exit(1);
+        let mut armed = target.armed.lock().unwrap_or_else(|error| error.into_inner());
+        if *armed { *armed = false; let _ = signal_target(target, "kill"); }
+        // A blocked stdout flush must not keep the owner alive after group termination.
+        #[cfg(target_os = "linux")]
+        unsafe { libc::_exit(1) }
+        #[cfg(not(target_os = "linux"))]
+        std::process::exit(1)
     }
     pub fn configure(command: &mut Command) {
         // SAFETY: setsid is async-signal-safe and runs before exec.
@@ -137,7 +142,7 @@ mod platform {
                 if group_signal(&fd, 0).is_ok() { Some(Arc::new(fd)) } else { None }
             }
         };
-        Ok(Group { target: Target { pid: child.id(), armed: Arc::new(AtomicBool::new(true)), #[cfg(target_os = "linux")] pidfd } })
+        Ok(Group { target: Target { pid: child.id(), armed: Arc::new(Mutex::new(true)), #[cfg(target_os = "linux")] pidfd } })
     }
     #[cfg(target_os = "linux")]
     fn group_signal(fd: &OwnedFd, signal: i32) -> io::Result<()> {
@@ -262,7 +267,7 @@ fn run(output: &Output) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     let (mut child, mut group) = platform::spawn(program, &args, cwd, env, has_stdin)?;
     let kill = group.target();
-    if emit(output, json!({"type":"spawn","pid":child.id()})).is_err() { platform::abandon(&kill); }
+    if emit(output, json!({"type":"spawn","pid":child.id(),"proves_empty":platform::can_prove_empty(&group)})).is_err() { platform::abandon(&kill); }
     let stdout = reader(child.stdout.take().ok_or("missing stdout")?, "stdout", output.clone(), kill.clone());
     let stderr = reader(child.stderr.take().ok_or("missing stderr")?, "stderr", output.clone(), kill.clone());
     let (tx, rx) = mpsc::channel::<Option<(Value, Vec<u8>)>>();
@@ -299,6 +304,15 @@ fn run(output: &Output) -> Result<(), Box<dyn std::error::Error>> {
             Some("signal") => platform::signal(&group, request["signal"].as_str().ok_or("missing signal")?)?,
             Some("close") => { platform::release(&mut group)?; return Ok(()); }
             Some("cleanup") => {
+                #[cfg(target_os = "linux")]
+                {
+                    let target = group.target();
+                    // A protocol write can block the cleanup thread past its deadline.
+                    thread::spawn(move || {
+                        thread::sleep(std::time::Duration::from_secs(5));
+                        platform::abandon(&target);
+                    });
+                }
                 if platform::signal(&group, "kill").is_err() || !platform::can_prove_empty(&group) {
                     platform::abandon(&group.target());
                 }

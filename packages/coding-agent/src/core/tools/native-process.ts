@@ -25,6 +25,9 @@ export class NativeTimeoutError extends Error {
 	}
 }
 
+/** Time a stop request waits for the helper to report its spawn before the helper itself is killed. */
+const STARTUP_STOP_GRACE_MS = 5_000;
+
 /** Execute through the owner of the native group; its PID is never used as a signal target. */
 export async function executeNativeProcess(options: NativeProcessOptions): Promise<number | null> {
 	if (options.signal?.aborted) throw new Error("aborted");
@@ -43,6 +46,7 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 	let cleaned = false;
 	const cleanedListeners = new Set<() => void>();
 	let spawned = false;
+	let provesEmpty: boolean | undefined;
 	let exited = false;
 	let exitCode: number | null = null;
 	let exitAfterMs: number | undefined;
@@ -53,6 +57,8 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 	let timedOut = false;
 	let postExitTimer: NodeJS.Timeout | undefined;
 	let timeoutTimer: NodeJS.Timeout | undefined;
+	let startupStopTimer: NodeJS.Timeout | undefined;
+	let startupKilled = false;
 	let nextInputId = 0;
 	const writes = new Map<number, (error?: Error | null) => void>();
 	const startedAt = performance.now();
@@ -67,6 +73,9 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 	};
 	const handle: NativeProcessHandle = {
 		pid: 0,
+		get canProveEmpty() {
+			return provesEmpty;
+		},
 		get lost() {
 			return lost;
 		},
@@ -100,6 +109,7 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 		settled = true;
 		clearTimeout(postExitTimer);
 		clearTimeout(timeoutTimer);
+		clearTimeout(startupStopTimer);
 		options.signal?.removeEventListener("abort", abort);
 		if (error && !closed) {
 			if (spawned) markLost();
@@ -113,8 +123,20 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 		clearTimeout(postExitTimer);
 		postExitTimer = setTimeout(() => finish(), 100);
 	};
+	// The helper reads requests only after its spawn call returns; a spawn that stalls (for example an
+	// executable on a hung filesystem) cannot see a kill request, so the helper is killed after a grace period.
+	// shortcut: the helper's child, already forked and stuck in exec, is not tied to the helper and runs
+	// unowned if the filesystem recovers; upgrade to a parent-death signal if that case matters.
+	const stopBeforeSpawn = () => {
+		if (spawned || startupStopTimer) return;
+		startupStopTimer = setTimeout(() => {
+			if (spawned || settled) return;
+			startupKilled = helper.kill("SIGKILL");
+		}, STARTUP_STOP_GRACE_MS);
+	};
 	const abort = () => {
 		handle.signal("kill");
+		stopBeforeSpawn();
 	};
 	const input = new Writable({
 		write(chunk: Buffer, _encoding, callback) {
@@ -143,7 +165,10 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 		);
 		for (const callback of writes.values()) callback(error);
 		writes.clear();
-		if (!settled) finish(cleaned && options.signal?.aborted ? new Error("aborted") : error);
+		if (!settled) {
+			if (!startupKilled) finish(cleaned && options.signal?.aborted ? new Error("aborted") : error);
+			else finish(options.signal?.aborted ? new Error("aborted") : undefined);
+		}
 	});
 	const protocolError = (message: string) => {
 		if (spawned) markLost();
@@ -153,7 +178,15 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 		} else finish(new Error(message));
 	};
 	const onControl = (payload: Buffer) => {
-		let message: { type: string; pid?: number; code?: number | null; id?: number; error?: string; message?: string };
+		let message: {
+			type: string;
+			pid?: number;
+			proves_empty?: boolean;
+			code?: number | null;
+			id?: number;
+			error?: string;
+			message?: string;
+		};
 		try {
 			message = JSON.parse(payload.toString("utf8"));
 		} catch {
@@ -167,6 +200,7 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 					return;
 				}
 				spawned = true;
+				provesEmpty = message.proves_empty;
 				handle.pid = message.pid;
 				if (options.onStdin && options.shell.commandTransport !== "stdin") options.onStdin(input);
 				options.onHandle?.(handle);
@@ -253,6 +287,7 @@ export async function executeNativeProcess(options: NativeProcessOptions): Promi
 				exitBeforeTimeout = { exitCode, afterSeconds: Math.round(exitAfterMs / 100) / 10 };
 			}
 			handle.signal("kill");
+			stopBeforeSpawn();
 		}, options.timeoutMs);
 	send({
 		type: "start",
