@@ -100,11 +100,10 @@ export const SubagentControl = remote("p2.subagent-control", {
 	},
 });
 
-export { ChildrenSchema };
-
 export {
 	AGENT_MESSAGE_ENTRY,
 	type AgentMessage,
 	AgentMessageSchema,
 	SUBAGENT_TASK_ENTRY,
 } from "@p2/app/v1";
+export { ChildrenSchema };

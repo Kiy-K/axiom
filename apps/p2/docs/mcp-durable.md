@@ -21,16 +21,16 @@ Rules (the repository's `AGENTS.md` overrides anything here):
   same tree; it still gets its own commit and changelog entry.
 - Several agents may work in the same checkout. Stage explicit paths only; never `git add -A`, `git stash`,
   `git reset --hard` or `git checkout .`.
-- After code changes: `npm run check` from the repository root (formatting, lint, types), and after p2 changes also
-  `cd apps/p2 && npm run check` (p2 is outside the root check). It must be clean except for
+- After code changes: `bun run check` from the repository root (formatting, lint, types), and after p2 changes also
+  `cd apps/p2 && bun run check` (p2 is outside the root check). It must be clean except for
   errors you can show are unrelated and pre-existing. If it fails on missing modules or stale generated model data, run
-  `npm install --ignore-scripts` and `npm run hydrate:model-data` first (this does not change tracked files).
+  `bun install --ignore-scripts` and `bun run hydrate:model-data` first (this does not change tracked files).
 - Tests: run the package's own tests, never the whole suite. From the package directory:
   `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run test/<file>.test.ts`.
   p2's tests use `node --test` (see `apps/p2/package.json`).
 - The pi-env daemon is Rust: `cd packages/env/daemon && cargo fmt --check && cargo clippy --locked --all-targets -- -D
   warnings && cargo test --locked`. Also lint for Windows: `cargo clippy --locked --all-targets --target
-  x86_64-pc-windows-msvc -- -D warnings`. Rebuild the debug daemon (`npm run build:daemon` in `packages/env`) before
+  x86_64-pc-windows-msvc -- -D warnings`. Rebuild the debug daemon (`bun run build:daemon` in `packages/env`) before
   running pi-env's TypeScript tests.
 - Public packages get a `CHANGELOG.md` entry under `## [Unreleased]` (`### Added`, `### Changed`, `### Fixed`).
 - Commit only when asked, one commit per work package, message `feat(<scope>): ...` / `fix(<scope>): ...`.
@@ -311,7 +311,7 @@ so it gets a transport over an abstract pipe that `RemoteProcess` satisfies with
 - end to end: a `McpClient` over `PipeTransport` whose `open` spawns `test/fixtures/stdio-server.mjs` with
   `node:child_process` (a 20-line adapter in the test) completes `initialize`, `tools/list` and `tools/call`.
 
-**Done when:** tests pass, `test/stdio.test.ts` unchanged and green, `npm run check` clean, README and changelog
+**Done when:** tests pass, `test/stdio.test.ts` unchanged and green, `bun run check` clean, README and changelog
 updated. pi-mcp still has no dependency on pi-env.
 
 ---
@@ -576,7 +576,7 @@ copied or referenced from pi-mcp:
 - a crashed server reconnects with backoff and its tools come back;
 - a guest gets nothing.
 
-**Done when:** the tests pass, `npm run check` clean, and a manual run (throwaway session under `/tmp`, separate data
+**Done when:** the tests pass, `bun run check` clean, and a manual run (throwaway session under `/tmp`, separate data
 dir and port, per "No hand tests on real sessions" in `apps/p2/docs/handoff.md`) shows an MCP tool used by the agent.
 
 ---

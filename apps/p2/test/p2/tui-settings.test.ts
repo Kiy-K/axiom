@@ -204,72 +204,71 @@ test("/keybindings rebinds through savePrefs; launcher-owned keys are listed but
 	assert.equal(grants.length, 1);
 });
 
-test(
-	"end to end: the launcher shows the diff, writes prefs.json, and the watcher applies the new theme",
-	{ skip: !supported, timeout: 60000 },
-	async (t) => {
-		const fixture = await startFixture();
-		t.after(() => fixture.close());
-		await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
-			{ cwd: fixture.workspace },
-			BACKGROUND_CONTEXT,
-		);
-		const directory = mkdtempSync(join(tmpdir(), "p2-prefs-e2e-"));
-		t.after(() => rmSync(directory, { recursive: true, force: true }));
-		const sources = { agentDir: join(directory, "agent"), configDir: join(directory, "p2-tui") };
-		const current = loadLocalPreferences(sources);
-		const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
-		const terminal = new VirtualTerminal(100, 40);
-		const writes: string[] = [];
-		const write = terminal.write.bind(terminal);
-		terminal.write = (data) => {
-			writes.push(data);
-			write(data);
-		};
-		const client = await startTuiClient({
-			terminal,
-			url,
-			pollMs: 60000,
-			colorQueryMs: 10,
-			capabilities: { trueColor: true, platform: "linux", windowsKeys: false },
-			preferences: { current, subscribe: (listener) => watchLocalPreferences(sources, listener, current) },
-			actions: launcherActions({ url, credentials: {}, role: "owner", prefsDirectory: sources.configDir }),
-		});
-		t.after(() => client.close());
-		const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
-		await poll(async () => (await screen()).includes("New session"), 15000);
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
-		for (const char of "/settings") terminal.sendInput(char);
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Hide thinking"));
-		// Theme → light (system, dark, light), then Hide thinking off, then Esc proposes both.
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Preview"));
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Hide thinking"));
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		terminal.sendInput("\x1b");
-		await poll(async () => (await screen()).includes("Save your TUI preferences on this computer"));
-		assert((await screen()).includes("+ settings.hideThinkingBlock: false"));
-		assert((await screen()).includes('+ theme: "light"'));
-		// The light theme's muted color (the live system theme uses the terminal's palette indices instead).
-		const muted = createTheme(LIGHT_THEME, "truecolor").getFgAnsi("muted");
-		writes.length = 0;
-		terminal.sendInput("y");
-		await poll(() => {
-			try {
-				return JSON.parse(readFileSync(join(sources.configDir, "prefs.json"), "utf8")).theme === "light";
-			} catch {
-				return false;
-			}
-		});
-		// The launcher's watcher posts the saved file; the worker repaints in the light theme.
-		await poll(() => writes.join("").includes(muted), 10000, "light theme applied");
-		await poll(async () => (await screen()).includes("Preferences saved"));
-	},
-);
+test("end to end: the launcher shows the diff, writes prefs.json, and the watcher applies the new theme", {
+	skip: !supported,
+	timeout: 60000,
+}, async (t) => {
+	const fixture = await startFixture();
+	t.after(() => fixture.close());
+	await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
+		{ cwd: fixture.workspace },
+		BACKGROUND_CONTEXT,
+	);
+	const directory = mkdtempSync(join(tmpdir(), "p2-prefs-e2e-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const sources = { agentDir: join(directory, "agent"), configDir: join(directory, "p2-tui") };
+	const current = loadLocalPreferences(sources);
+	const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
+	const terminal = new VirtualTerminal(100, 40);
+	const writes: string[] = [];
+	const write = terminal.write.bind(terminal);
+	terminal.write = (data) => {
+		writes.push(data);
+		write(data);
+	};
+	const client = await startTuiClient({
+		terminal,
+		url,
+		pollMs: 60000,
+		colorQueryMs: 10,
+		capabilities: { trueColor: true, platform: "linux", windowsKeys: false },
+		preferences: { current, subscribe: (listener) => watchLocalPreferences(sources, listener, current) },
+		actions: launcherActions({ url, credentials: {}, role: "owner", prefsDirectory: sources.configDir }),
+	});
+	t.after(() => client.close());
+	const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
+	await poll(async () => (await screen()).includes("New session"), 15000);
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
+	for (const char of "/settings") terminal.sendInput(char);
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Hide thinking"));
+	// Theme → light (system, dark, light), then Hide thinking off, then Esc proposes both.
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Preview"));
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Hide thinking"));
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	terminal.sendInput("\x1b");
+	await poll(async () => (await screen()).includes("Save your TUI preferences on this computer"));
+	assert((await screen()).includes("+ settings.hideThinkingBlock: false"));
+	assert((await screen()).includes('+ theme: "light"'));
+	// The light theme's muted color (the live system theme uses the terminal's palette indices instead).
+	const muted = createTheme(LIGHT_THEME, "truecolor").getFgAnsi("muted");
+	writes.length = 0;
+	terminal.sendInput("y");
+	await poll(() => {
+		try {
+			return JSON.parse(readFileSync(join(sources.configDir, "prefs.json"), "utf8")).theme === "light";
+		} catch {
+			return false;
+		}
+	});
+	// The launcher's watcher posts the saved file; the worker repaints in the light theme.
+	await poll(() => writes.join("").includes(muted), 10000, "light theme applied");
+	await poll(async () => (await screen()).includes("Preferences saved"));
+});

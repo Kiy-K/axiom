@@ -11,6 +11,7 @@
 ### Changed
 
 - Renamed the "OpenAI Codex (legacy)" provider back to "OpenAI Codex"
+- Upgraded `@anthropic-ai/sdk` to 1.6 and `@google/genai` to 3.0. Gemini's `CONTINUATION` finish reason, returned when a response reaches the per-request decode limit, now maps to `length`. genai 3 resumes such responses itself by default, which sends extra requests for long outputs.
 
 ### Fixed
 

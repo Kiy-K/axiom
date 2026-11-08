@@ -67,7 +67,7 @@ function Counter() {
 }
 
 /** An input of the page state at `key`. */
-function noteInput(key: string) {
+function NoteInput(key: string) {
 	const [note, setNote] = usePageState(key, "");
 	return h("input", {
 		id: "note",
@@ -78,7 +78,7 @@ function noteInput(key: string) {
 }
 
 /** The note's component and the components replacing it: each a new function to React, as a reloaded plugin's. */
-const NOTES = [() => noteInput("note"), () => noteInput("note"), () => noteInput("other")];
+const NOTES = [() => NoteInput("note"), () => NoteInput("note"), () => NoteInput("other")];
 
 /** The greeting, in the page's language. */
 function Greeting() {

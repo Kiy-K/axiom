@@ -1045,6 +1045,7 @@ export function WorkspacePanel({
 						{value.matches.map((match, index) => (
 							<button
 								type="button"
+								// biome-ignore lint/suspicious/noArrayIndexKey: the match list is replaced whole per search; the index keeps repeated path:line pairs distinct.
 								key={`${match.path}:${match.line}:${index}`}
 								className="workspace-row match"
 								aria-current={

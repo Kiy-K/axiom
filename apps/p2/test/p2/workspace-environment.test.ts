@@ -86,60 +86,56 @@ test("a linked git worktree's index and HEAD are watched", { timeout: 60_000 }, 
 	}
 });
 
-test(
-	"the watch leaves out a private directory inside the root, and a large tree watches its root only",
-	{
-		timeout: 60_000,
-	},
-	async () => {
-		const directory = await realpath(await mkdtemp(join(tmpdir(), "p2-workspace-watch-")));
-		const settle = (ms: number) => new Promise((done) => setTimeout(done, ms));
-		const until = async (check: () => boolean) => {
-			for (let i = 0; i < 100 && !check(); i++) await settle(100);
-			return check();
-		};
+test("the watch leaves out a private directory inside the root, and a large tree watches its root only", {
+	timeout: 60_000,
+}, async () => {
+	const directory = await realpath(await mkdtemp(join(tmpdir(), "p2-workspace-watch-")));
+	const settle = (ms: number) => new Promise((done) => setTimeout(done, ms));
+	const until = async (check: () => boolean) => {
+		for (let i = 0; i < 100 && !check(); i++) await settle(100);
+		return check();
+	};
+	try {
+		const root = join(directory, "small");
+		await mkdir(join(root, "a/b"), { recursive: true });
+		await mkdir(join(root, "home/private"), { recursive: true });
+		await mkdir(join(root, "home/other"), { recursive: true });
+		const workspace = new Workspace(new NodeExecutionEnv({ cwd: root }), [join(root, "home/private")]);
+		let changes = 0;
+		const watcher = await workspace.watch(() => changes++, context);
+		assert(watcher);
 		try {
-			const root = join(directory, "small");
-			await mkdir(join(root, "a/b"), { recursive: true });
-			await mkdir(join(root, "home/private"), { recursive: true });
-			await mkdir(join(root, "home/other"), { recursive: true });
-			const workspace = new Workspace(new NodeExecutionEnv({ cwd: root }), [join(root, "home/private")]);
-			let changes = 0;
-			const watcher = await workspace.watch(() => changes++, context);
-			assert(watcher);
-			try {
-				await writeFile(join(root, "home/private/log"), "x\n");
-				await settle(1000);
-				assert.equal(changes, 0, "a change in the private directory is not reported");
-				await writeFile(join(root, "home/other/file"), "x\n");
-				assert(await until(() => changes > 0), "a sibling of the private directory is watched");
-				changes = 0;
-				await writeFile(join(root, "a/b/file"), "x\n");
-				assert(await until(() => changes > 0), "other folders are watched recursively");
-			} finally {
-				await watcher.stop(context);
-			}
-
-			const large = join(directory, "large");
-			for (let index = 0; index <= 2000; index++) await mkdir(join(large, `d${index}`), { recursive: true });
-			const big = new Workspace(new NodeExecutionEnv({ cwd: large }), []);
-			let bigChanges = 0;
-			const bigWatcher = await big.watch(() => bigChanges++, context);
-			assert(bigWatcher);
-			try {
-				await writeFile(join(large, "d5/file"), "x\n");
-				await settle(1000);
-				assert.equal(bigChanges, 0, "below the root of a large tree nothing is watched");
-				await writeFile(join(large, "top.txt"), "x\n");
-				assert(await until(() => bigChanges > 0), "the root's entries are watched");
-			} finally {
-				await bigWatcher.stop(context);
-			}
+			await writeFile(join(root, "home/private/log"), "x\n");
+			await settle(1000);
+			assert.equal(changes, 0, "a change in the private directory is not reported");
+			await writeFile(join(root, "home/other/file"), "x\n");
+			assert(await until(() => changes > 0), "a sibling of the private directory is watched");
+			changes = 0;
+			await writeFile(join(root, "a/b/file"), "x\n");
+			assert(await until(() => changes > 0), "other folders are watched recursively");
 		} finally {
-			await rm(directory, { recursive: true, force: true });
+			await watcher.stop(context);
 		}
-	},
-);
+
+		const large = join(directory, "large");
+		for (let index = 0; index <= 2000; index++) await mkdir(join(large, `d${index}`), { recursive: true });
+		const big = new Workspace(new NodeExecutionEnv({ cwd: large }), []);
+		let bigChanges = 0;
+		const bigWatcher = await big.watch(() => bigChanges++, context);
+		assert(bigWatcher);
+		try {
+			await writeFile(join(large, "d5/file"), "x\n");
+			await settle(1000);
+			assert.equal(bigChanges, 0, "below the root of a large tree nothing is watched");
+			await writeFile(join(large, "top.txt"), "x\n");
+			assert(await until(() => bigChanges > 0), "the root's entries are watched");
+		} finally {
+			await bigWatcher.stop(context);
+		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
 
 test("a root inside a repository lists changes and commits relative to itself, and opens them", async () => {
 	const directory = await realpath(await mkdtemp(join(tmpdir(), "p2-workspace-subdir-")));

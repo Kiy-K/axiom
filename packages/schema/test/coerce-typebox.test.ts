@@ -386,37 +386,37 @@ describe("Value.Convert.Boolean", () => {
 	// ------------------------------------------------------------------
 	// Coverage
 	// ------------------------------------------------------------------
-	it("Should Convert 17", () => {
+	it("Should Convert 30", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, BigInt(0));
 		Assert.IsEqual(R, false);
 	});
-	it("Should Convert 18", () => {
+	it("Should Convert 31", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, BigInt(1));
 		Assert.IsEqual(R, true);
 	});
-	it("Should Convert 19", () => {
+	it("Should Convert 32", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, BigInt(2));
 		Assert.IsEqual(R, BigInt(2));
 	});
-	it("Should Convert 20", () => {
+	it("Should Convert 33", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, true);
 		Assert.IsEqual(R, true);
 	});
-	it("Should Convert 21", () => {
+	it("Should Convert 34", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, false);
 		Assert.IsEqual(R, false);
 	});
-	it("Should Convert 22", () => {
+	it("Should Convert 35", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, null);
 		Assert.IsEqual(R, false);
 	});
-	it("Should Convert 23", () => {
+	it("Should Convert 36", () => {
 		const T = Type.Boolean();
 		const R = Value.Convert(T, undefined);
 		Assert.IsEqual(R, false);
@@ -689,44 +689,6 @@ describe("Value.Convert.Literal", () => {
 		const R = Value.Convert(T, "2");
 		Assert.IsEqual(R, "2");
 	});
-	// ------------------------------------------------------------------
-	// LiteralBigInt
-	// ------------------------------------------------------------------
-	it("LiteralBigInt: Should convert 1", () => {
-		const T = Type.Literal(100n);
-		const R = Value.Convert(T, 100n);
-		Assert.IsEqual(R, 100n);
-	});
-	it("LiteralBigInt: Should convert 2", () => {
-		const T = Type.Literal(100n);
-		const R = Value.Convert(T, 100);
-		Assert.IsEqual(R, 100n);
-	});
-	it("LiteralBigInt: Should convert 3", () => {
-		const T = Type.Literal(1n);
-		const R = Value.Convert(T, "true");
-		Assert.IsEqual(R, 1n);
-	});
-	it("LiteralBigInt: Should convert 4", () => {
-		const T = Type.Literal(0n);
-		const R = Value.Convert(T, "false");
-		Assert.IsEqual(R, 0n);
-	});
-	it("LiteralBigInt: Should convert 5", () => {
-		const T = Type.Literal(1n);
-		const R = Value.Convert(T, "1");
-		Assert.IsEqual(R, 1n);
-	});
-	it("LiteralBigInt: Should convert 6", () => {
-		const T = Type.Literal(0n);
-		const R = Value.Convert(T, "0");
-		Assert.IsEqual(R, 0n);
-	});
-	it("LiteralBigInt: Should convert 7", () => {
-		const T = Type.Literal(100n);
-		const R = Value.Convert(T, "2");
-		Assert.IsEqual(R, "2");
-	});
 });
 
 describe("Value.Convert.Never", () => {
@@ -922,57 +884,57 @@ describe("Value.Convert.Number", () => {
 	// ------------------------------------------------------------------
 	// Coverage
 	// ------------------------------------------------------------------
-	it("Should Convert 10", () => {
+	it("Should Convert 15", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, BigInt(0));
 		Assert.IsEqual(R, 0);
 	});
-	it("Should Convert 11", () => {
+	it("Should Convert 16", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, BigInt(10000000000000000000000000000000000000000000000000000));
 		Assert.IsEqual(R, BigInt(10000000000000000000000000000000000000000000000000000));
 	});
-	it("Should Convert 12", () => {
+	it("Should Convert 17", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, null);
 		Assert.IsEqual(R, 0);
 	});
-	it("Should Convert 13", () => {
+	it("Should Convert 18", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, "false");
 		Assert.IsEqual(R, 0);
 	});
-	it("Should Convert 14", () => {
+	it("Should Convert 19", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, "true");
 		Assert.IsEqual(R, 1);
 	});
-	it("Should Convert 15", () => {
+	it("Should Convert 20", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, "123");
 		Assert.IsEqual(R, 123);
 	});
-	it("Should Convert 16", () => {
+	it("Should Convert 21", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, "123.456");
 		Assert.IsEqual(R, 123.456);
 	});
-	it("Should Convert 17", () => {
+	it("Should Convert 22", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, "123.456");
 		Assert.IsEqual(R, 123.456);
 	});
-	it("Should Convert 18", () => {
+	it("Should Convert 23", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, "123n");
 		Assert.IsEqual(R, 123);
 	});
-	it("Should Convert 19", () => {
+	it("Should Convert 24", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, undefined);
 		Assert.IsEqual(R, 0);
 	});
-	it("Should Convert 20", () => {
+	it("Should Convert 25", () => {
 		const T = Type.Number();
 		const R = Value.Convert(T, `90071992547409910n`); // trailing 0 too large
 		Assert.IsEqual(R, "90071992547409910n");

@@ -27,7 +27,7 @@ Most providers reuse an existing API such as `openai-completions`; skip this ste
 
 - Add a provider definition with `defineProvider()` and register it in `catalog/providers/index.ts`. Read `packages/ai/catalog/README.md` first.
 - For a models.dev provider, use `modelsDevModels()`; set compat defaults per API in `compat` and provider-specific behavior in `finalize`.
-- Regenerate with `npm run generate-models` in `packages/ai`. This writes the stable catalog wrapper `src/providers/<id>.models.ts` (exporting `<ID>_MODELS`) that the provider factory imports, and updates `src/models.generated.ts`.
+- Regenerate with `bun run generate-models` in `packages/ai`. This writes the stable catalog wrapper `src/providers/<id>.models.ts` (exporting `<ID>_MODELS`) that the provider factory imports, and updates `src/models.generated.ts`.
 
 ## 4. Provider Factory and Auth (`packages/ai/src/providers/`)
 

@@ -138,43 +138,39 @@ describe("web host", () => {
 		assert.equal(await outcome({ Origin: origin, "Sec-Fetch-Site": "same-origin" }), "open");
 	});
 
-	it(
-		"in a browser: the app runs under its CSP, and another origin cannot frame it",
-		{ skip: !browserTests, timeout: 60_000 },
-		async () => {
-			const framer = createServer((_request, response) => {
-				response.writeHead(200, { "Content-Type": "text/html" });
-				response.end(`<iframe id="app" src="http://127.0.0.1:${fixture.server.port}/"></iframe>`);
+	it("in a browser: the app runs under its CSP, and another origin cannot frame it", {
+		skip: !browserTests,
+		timeout: 60_000,
+	}, async () => {
+		const framer = createServer((_request, response) => {
+			response.writeHead(200, { "Content-Type": "text/html" });
+			response.end(`<iframe id="app" src="http://127.0.0.1:${fixture.server.port}/"></iframe>`);
+		});
+		await new Promise<void>((resolve) => framer.listen(0, "127.0.0.1", resolve));
+		const framerPort = (framer.address() as { port: number }).port;
+		const browser = await Browser.start();
+		try {
+			await browser.call("Page.addScriptToEvaluateOnNewDocument", {
+				source:
+					"window.cspViolations=[];document.addEventListener('securitypolicyviolation',(e)=>window.cspViolations.push(e.violatedDirective+' '+e.blockedURI))",
 			});
-			await new Promise<void>((resolve) => framer.listen(0, "127.0.0.1", resolve));
-			const framerPort = (framer.address() as { port: number }).port;
-			const browser = await Browser.start();
-			try {
-				await browser.call("Page.addScriptToEvaluateOnNewDocument", {
-					source:
-						"window.cspViolations=[];document.addEventListener('securitypolicyviolation',(e)=>window.cspViolations.push(e.violatedDirective+' '+e.blockedURI))",
-				});
-				await browser.open(`http://127.0.0.1:${fixture.server.port}/`);
-				await browser.wait("document.querySelector('.composer textarea') && !document.querySelector('.offline')");
-				assert.deepEqual(await browser.evaluate("window.cspViolations"), []);
-				// A page of another origin (another port, same site) framing the app: Chromium refuses to render it.
-				await browser.open(`http://127.0.0.1:${framerPort}/`);
-				await new Promise((resolve) => setTimeout(resolve, 1500));
-				const tree = (await browser.call("Page.getFrameTree")) as {
-					frameTree: { childFrames?: { frame: { url: string; unreachableUrl?: string } }[] };
-				};
-				const child = tree.frameTree.childFrames?.[0]?.frame;
-				assert.ok(child, "the framer has its iframe");
-				assert.ok(
-					child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined,
-					JSON.stringify(child),
-				);
-			} finally {
-				await browser.close();
-				await new Promise<void>((resolve) => framer.close(() => resolve()));
-			}
-		},
-	);
+			await browser.open(`http://127.0.0.1:${fixture.server.port}/`);
+			await browser.wait("document.querySelector('.composer textarea') && !document.querySelector('.offline')");
+			assert.deepEqual(await browser.evaluate("window.cspViolations"), []);
+			// A page of another origin (another port, same site) framing the app: Chromium refuses to render it.
+			await browser.open(`http://127.0.0.1:${framerPort}/`);
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+			const tree = (await browser.call("Page.getFrameTree")) as {
+				frameTree: { childFrames?: { frame: { url: string; unreachableUrl?: string } }[] };
+			};
+			const child = tree.frameTree.childFrames?.[0]?.frame;
+			assert.ok(child, "the framer has its iframe");
+			assert.ok(child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined, JSON.stringify(child));
+		} finally {
+			await browser.close();
+			await new Promise<void>((resolve) => framer.close(() => resolve()));
+		}
+	});
 
 	it("refuses other hosts and origins", async () => {
 		const forged = await get(fixture.server.port, "/", { Host: "evil.example" });

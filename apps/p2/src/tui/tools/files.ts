@@ -28,7 +28,7 @@ const textOf = (component: unknown): Text => (component instanceof Text ? compon
 /** Durable's truncation details (`ReadToolDetails`, grep/find/ls), read defensively. */
 function truncationOf(details: unknown) {
 	const truncation = record(record(details)?.truncation);
-	if (!truncation || truncation.truncated !== true) return undefined;
+	if (truncation?.truncated !== true) return undefined;
 	return {
 		truncatedBy: truncation.truncatedBy,
 		firstLineExceedsLimit: truncation.firstLineExceedsLimit === true,

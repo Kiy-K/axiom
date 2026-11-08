@@ -339,7 +339,7 @@ test("chat mode: chip, quoted replies and notes, /chat-mode (owner), /reply, @pi
 	typed(send, "yes, done");
 	send(ENTER);
 	await poll(() => (calls.send?.length ?? 0) === 1);
-	assert.equal((calls.send?.[0] as { replyTo?: number }).replyTo, 3);
+	assert.equal((calls.send?.[0] as { replyTo?: number } | undefined)?.replyTo, 3);
 	await poll(async () => !(await screen()).includes("↪ Replying to"));
 	// @pi is offered first while chat mode is on.
 	typed(send, "ask @p");

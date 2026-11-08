@@ -40,46 +40,45 @@ replacing the old facet/service runtime and the `pi-client`, `pi-protocol` and `
 - **p2** runs in tmux session `p2` from `~/pi-private/apps/p2` (as planned for the switch; confirm with `tmux ls`
   and `ps`):
   ```sh
-  PORT=8787 P2_ALLOWED_HOSTS=pim.ngrok.pro P2_PUBLIC_URL=https://pim.ngrok.pro npm run dev
+  PORT=8787 P2_ALLOWED_HOSTS=pim.ngrok.pro P2_PUBLIC_URL=https://pim.ngrok.pro bun run dev
   ```
-  Update: `git pull`, `npm install --ignore-scripts` at the root if dependencies changed, then **Restart** in the app or
-  `npm run reload -- --restart` (plugin changes: **Reload**).
+  Update: `git pull`, `bun install --ignore-scripts` at the root if dependencies changed, then **Restart** in the app or
+  `bun run reload -- --restart` (plugin changes: **Reload**).
 - **Per-host stores:** a p2 with per-host stores refuses a data directory in the older layout. Once: stop p2,
-  `npm run migrate-data -- --dry-run`, then `npm run migrate-data` (old files go to `~/.pi/p2/pre-files-backup/`;
+  `bun run migrate-data -- --dry-run`, then `bun run migrate-data` (old files go to `~/.pi/p2/pre-files-backup/`;
   `scripts/data-report.ts` before and `--compare` after), then start it (`docs/p2-notes.md`, Migration).
 - **Tunnel:** ngrok as a termux-services (runit) service, `$PREFIX/var/service/ngrok/run`, forwarding
   `https://pim.ngrok.pro` to port 8787 (`sv status|restart $PREFIX/var/service/ngrok`; logs in
   `$PREFIX/var/log/ngrok/current`).
-- **Radius:** not configured (no `radius.json`); `npm run radius:login` enables it.
+- **Radius:** not configured (no `radius.json`); `bun run radius:login` enables it.
 - **No boot scripts.** Run `termux-wake-lock` so Android keeps the processes alive.
 
 ## Running p2
 
 ```sh
 cd apps/p2
-npm run dev                  # dev mode: apply plugin changes, including web facets, with Reload or `npm run reload`
-npm start                    # without the dev supervisor
-P2_FAKE=1 npm start          # fake model, no provider needed
-npm run owner-link [url]     # one-time owner sign-in link for another device (run on the machine itself)
-npm run tui [url]            # TUI (Node >= 26.5.1); on loopback it signs in as owner automatically
-npm run reload [plugins] [--restart]
-npm run check                # Biome + tsc
-npm test                     # full suite; TUI tests need Node 26, browser tests need CHROMIUM_BIN
+bun run dev                  # dev mode: apply plugin changes, including web facets, with Reload or `bun run reload`
+bun run start                # without the dev supervisor
+P2_FAKE=1 bun run start      # fake model, no provider needed
+bun run owner-link [url]     # one-time owner sign-in link for another device (run on the machine itself)
+bun run tui [url]            # TUI (Node >= 26.5.1); on loopback it signs in as owner automatically
+bun run reload [plugins] [--restart]
+bun run check                # Biome + tsc
+bun run test                 # full suite; TUI tests need Node 26, browser tests need CHROMIUM_BIN
 ```
 
 Environment variables: `docs/p2-notes.md` (Running). Configuration in the data dir: `models.json`, `settings.json`
 (incl. `codemode`, default on in p2), `envs.json`, `mcp.json`, `auth.json`, `radius.json`, `forwards.json`.
 
-**Sign-in.** Requests from the device itself are the owner. Other devices get owner rights with a link from `npm
-run owner-link` (single use, 10 minutes, long-lived signed cookie). Guests join through share links. Requests other
+**Sign-in.** Requests from the device itself are the owner. Other devices get owner rights with a link from `bun run owner-link` (single use, 10 minutes, long-lived signed cookie). Guests join through share links. Requests other
 websites make never carry owner rights. Sign out per device or all devices in the Devices sheet.
 
-**Dev mode.** A file watcher only marks plugins dirty; reloads are explicit (button, `npm run reload`, the
+**Dev mode.** A file watcher only marks plugins dirty; reloads are explicit (button, `bun run reload`, the
 owner-only `reload_plugins` tool) because a watcher can't tell when an agent has finished a multi-file edit.
 Runtime code (`src/hosts`, `src/runtime`, workspace packages such as `packages/chord`) needs a restart; the "Server
 code changed" pill appears only when a module the server actually loaded changed.
 
-**slayer.** `~/p2.mariozechner.at/` holds `run.sh` (starts `npm run dev` from the deploy worktree `~/p2-live`),
+**slayer.** `~/p2.mariozechner.at/` holds `run.sh` (starts `bun run dev` from the deploy worktree `~/p2-live`),
 `deploy.sh` (moves `~/p2-live` to `origin/private` and restarts), `bridge.mjs` (unix socket for Caddy →
 127.0.0.1:8788), `Caddyfile` and `docker-compose.yml` (Caddy only marks requests as proxied; p2 authenticates on its
 own). It runs in tmux session `p2`. Development happens in `~/pi-private`; `~/p2-verify` is a scratch worktree for
@@ -116,7 +115,7 @@ verifying an agent's files on their own before committing. Node 24: `~/node-v24.
 
 ## The TUI
 
-`npm run tui [url]` (Node ≥ 26.5.1). The launcher owns the terminal, the connection and sign-in; all TUI code (pi-tui
+`bun run tui [url]` (Node ≥ 26.5.1). The launcher owns the terminal, the connection and sign-in; all TUI code (pi-tui
 and plugin facets) comes from the server as one bundle and runs in a worker that drops every Node permission first.
 Output passes a strict escape-sequence allowlist; privileged actions (copy, open URL, download, external editor,
 attach, saving preferences, sign-out) need launcher grants, mostly with a launcher-drawn consent screen. Preferences
@@ -128,9 +127,9 @@ model: `DEV.md` and `README.md` (TUI isolation). Design and as-built notes: `doc
 From `AGENTS.md` and this project's history:
 
 - **One tree.** p2, the packages, root config and scripts change together in `earendil-works/pi`. After p2 changes
-  run `npm run check` both at the root and in `apps/p2`.
+  run `bun run check` both at the root and in `apps/p2`.
 - **Commit only verified states.** When several agents edit one tree, copy an agent's files into a separate worktree
-  on top of `HEAD`, run `npm run check` and the full `npm test` there, and commit exactly that content
+  on top of `HEAD`, run `bun run check` and the full `bun run test` there, and commit exactly that content
   (`git hash-object -w` and `git update-index`). A browser test that times out under load and passes on its own is
   acceptable; anything else is not. Lockfile commits need `PI_ALLOW_LOCKFILE_CHANGE=1`; npm 11 strips `libc` fields,
   revert that noise. Never `--no-verify`.
@@ -162,7 +161,7 @@ From `AGENTS.md` and this project's history:
    tools (`tool_search` without code mode), servers on environments, project `.pi/mcp.json`, OAuth sign-in); code mode
    namespaces (WP9) are open, and whether Radius sends its cookie on a sign-in's redirect back is unverified.
 5. **npm:** deprecate `@earendil-works/pi-client`, `pi-protocol` and `pi-server` (1.1.0), which no longer exist.
-6. `docs/p2-notes.md` TODO: the TypeScript 5.9.3 pin (Termux), an isolating plugin loader, sandboxing third-party
+6. `docs/p2-notes.md` TODO: the TypeScript 7 Termux question, an isolating plugin loader, sandboxing third-party
    facets.
 7. **Slow test suite:** about 11 minutes serially; files could run in parallel once their isolation is fixed. The
    chat-mode long-press reply browser test times out under load.

@@ -209,93 +209,89 @@ test("TUI shows pi's code mode card: the script, the newest nested calls by dept
 	assert.match(done, /done\n +2/);
 });
 
-test(
-	"browser card: live rows (newest eight, Show all), the clipped script, and the settled summary",
-	{ skip: !browserTests, timeout: 60_000 },
-	async () => {
-		const fixture = await startFixture({ web: true });
-		let browser: Browser | undefined;
-		try {
-			browser = await Browser.start();
-			await browser.metrics(390, 844);
-			await browser.open(`http://127.0.0.1:${fixture.server.port}`);
-			await browser.wait("document.querySelector('.app')");
-			await browser.loadFixture("codemode-card.ts");
-			await browser.wait("typeof window.showCodemode==='function'");
-			const show = (view: ConversationView) => browser!.evaluate(`window.showCodemode(${JSON.stringify(view)})`);
-			await show(running());
-			await browser.wait("document.querySelectorAll('.nested-call').length===8");
-			assert.equal(await browser.evaluate("document.querySelector('.tool-name').textContent"), "Code");
-			assert.equal(
-				await browser.evaluate("document.querySelector('.tool-summary').textContent"),
-				"// read every file",
-			);
-			assert.equal(
-				await browser.evaluate("document.querySelector('.nested .tool-link').textContent"),
-				"Show all 10 tool calls · 1 failed",
-			);
-			// The newest rows: the running bash call with its last output line, the failed read with its error.
-			assert.equal(
-				await browser.evaluate("document.querySelector('.nested-call.running .nested-name').textContent"),
-				"bash",
-			);
-			assert.equal(await browser.evaluate("document.querySelector('.nested-call.running .spinner')!==null"), true);
-			assert.equal(
-				await browser.evaluate("document.querySelector('.nested-call.running .nested-detail').textContent"),
-				"running tests",
-			);
-			assert.equal(
-				await browser.evaluate("document.querySelector('.nested-call.error .nested-error').textContent"),
-				"ENOENT: f3.ts",
-			);
-			await browser.click(".nested .tool-link");
-			await browser.wait("document.querySelectorAll('.nested-call').length===10");
-			// A call's own call is indented one level.
-			assert.equal(
-				await browser.evaluate("document.querySelectorAll('.nested-call')[1].style.getPropertyValue('--depth')"),
-				"1",
-			);
-			assert.equal(
-				await browser.evaluate(
-					"parseFloat(getComputedStyle(document.querySelectorAll('.nested-call')[1]).paddingLeft) > parseFloat(getComputedStyle(document.querySelectorAll('.nested-call')[0]).paddingLeft)",
-				),
-				true,
-			);
-			// The script: highlighted JS in the card body, clipped to its first lines until Show all.
-			await browser.click(".tool-head");
-			await browser.wait("document.querySelector('.script.clip pre')");
-			assert.equal(await browser.evaluate("document.querySelector('.script .hljs-keyword')!==null"), true);
-			const clipped = await browser.evaluate<number>(
-				"document.querySelector('.script pre').getBoundingClientRect().height",
-			);
-			assert.equal(await browser.evaluate("document.querySelector('.script-more').textContent"), "Show all 8 lines");
-			await browser.click(".script-more");
-			await browser.wait("document.querySelector('.script') && !document.querySelector('.script.clip')");
-			assert.ok(
-				(await browser.evaluate<number>("document.querySelector('.script pre').getBoundingClientRect().height")) >
-					clipped,
-			);
-			// Settled (a fresh card; an open list stays open when its call settles): the rows collapse behind the count.
-			await show({ conversation, entries: [], docs: {} });
-			await browser.wait("!document.querySelector('.tool')");
-			await show(settled());
-			await browser.wait("document.querySelector('.nested .tool-link')?.textContent==='3 tool calls · 2 failed'");
-			assert.equal(await browser.evaluate("document.querySelectorAll('.nested-call').length"), 0);
-			await browser.click(".nested .tool-link");
-			await browser.wait("document.querySelectorAll('.nested-call').length===3");
-			assert.equal(
-				await browser.evaluate("document.querySelectorAll('.nested-call.error, .nested-call.interrupted').length"),
-				2,
-			);
-			assert.equal(
-				await browser.evaluate(
-					"[...document.querySelectorAll('.nested-time')].map((time)=>time.textContent).join(',')",
-				),
-				"12ms,3ms,interrupted",
-			);
-		} finally {
-			await browser?.close();
-			await fixture.close();
-		}
-	},
-);
+test("browser card: live rows (newest eight, Show all), the clipped script, and the settled summary", {
+	skip: !browserTests,
+	timeout: 60_000,
+}, async () => {
+	const fixture = await startFixture({ web: true });
+	let browser: Browser | undefined;
+	try {
+		browser = await Browser.start();
+		await browser.metrics(390, 844);
+		await browser.open(`http://127.0.0.1:${fixture.server.port}`);
+		await browser.wait("document.querySelector('.app')");
+		await browser.loadFixture("codemode-card.ts");
+		await browser.wait("typeof window.showCodemode==='function'");
+		const show = (view: ConversationView) => browser!.evaluate(`window.showCodemode(${JSON.stringify(view)})`);
+		await show(running());
+		await browser.wait("document.querySelectorAll('.nested-call').length===8");
+		assert.equal(await browser.evaluate("document.querySelector('.tool-name').textContent"), "Code");
+		assert.equal(await browser.evaluate("document.querySelector('.tool-summary').textContent"), "// read every file");
+		assert.equal(
+			await browser.evaluate("document.querySelector('.nested .tool-link').textContent"),
+			"Show all 10 tool calls · 1 failed",
+		);
+		// The newest rows: the running bash call with its last output line, the failed read with its error.
+		assert.equal(
+			await browser.evaluate("document.querySelector('.nested-call.running .nested-name').textContent"),
+			"bash",
+		);
+		assert.equal(await browser.evaluate("document.querySelector('.nested-call.running .spinner')!==null"), true);
+		assert.equal(
+			await browser.evaluate("document.querySelector('.nested-call.running .nested-detail').textContent"),
+			"running tests",
+		);
+		assert.equal(
+			await browser.evaluate("document.querySelector('.nested-call.error .nested-error').textContent"),
+			"ENOENT: f3.ts",
+		);
+		await browser.click(".nested .tool-link");
+		await browser.wait("document.querySelectorAll('.nested-call').length===10");
+		// A call's own call is indented one level.
+		assert.equal(
+			await browser.evaluate("document.querySelectorAll('.nested-call')[1].style.getPropertyValue('--depth')"),
+			"1",
+		);
+		assert.equal(
+			await browser.evaluate(
+				"parseFloat(getComputedStyle(document.querySelectorAll('.nested-call')[1]).paddingLeft) > parseFloat(getComputedStyle(document.querySelectorAll('.nested-call')[0]).paddingLeft)",
+			),
+			true,
+		);
+		// The script: highlighted JS in the card body, clipped to its first lines until Show all.
+		await browser.click(".tool-head");
+		await browser.wait("document.querySelector('.script.clip pre')");
+		assert.equal(await browser.evaluate("document.querySelector('.script .hljs-keyword')!==null"), true);
+		const clipped = await browser.evaluate<number>(
+			"document.querySelector('.script pre').getBoundingClientRect().height",
+		);
+		assert.equal(await browser.evaluate("document.querySelector('.script-more').textContent"), "Show all 8 lines");
+		await browser.click(".script-more");
+		await browser.wait("document.querySelector('.script') && !document.querySelector('.script.clip')");
+		assert.ok(
+			(await browser.evaluate<number>("document.querySelector('.script pre').getBoundingClientRect().height")) >
+				clipped,
+		);
+		// Settled (a fresh card; an open list stays open when its call settles): the rows collapse behind the count.
+		await show({ conversation, entries: [], docs: {} });
+		await browser.wait("!document.querySelector('.tool')");
+		await show(settled());
+		await browser.wait("document.querySelector('.nested .tool-link')?.textContent==='3 tool calls · 2 failed'");
+		assert.equal(await browser.evaluate("document.querySelectorAll('.nested-call').length"), 0);
+		await browser.click(".nested .tool-link");
+		await browser.wait("document.querySelectorAll('.nested-call').length===3");
+		assert.equal(
+			await browser.evaluate("document.querySelectorAll('.nested-call.error, .nested-call.interrupted').length"),
+			2,
+		);
+		assert.equal(
+			await browser.evaluate(
+				"[...document.querySelectorAll('.nested-time')].map((time)=>time.textContent).join(',')",
+			),
+			"12ms,3ms,interrupted",
+		);
+	} finally {
+		await browser?.close();
+		await fixture.close();
+	}
+});

@@ -3,19 +3,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const codingAgentDir = join(repoRoot, "packages/coding-agent");
 const outputDir = join(codingAgentDir, "install-lock");
-const rootLockfilePath = join(repoRoot, "package-lock.json");
+const bunLockPath = join(repoRoot, "bun.lock");
 const outputPackageJsonPath = join(outputDir, "package.json");
 const outputLockfilePath = join(outputDir, "package-lock.json");
 const internalPackagePrefix = "@earendil-works/pi-";
 const internalPackageNames = new Set(["@earendil-works/chord"]);
 const installPackageName = "@earendil-works/pi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
-	["@google/genai@2.21.0", "preinstall is a no-op in the published package"],
 	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
 ]);
 
@@ -368,13 +368,64 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 	}
 }
 
-function generateInstallLock() {
-	const rootLock = readJson(rootLockfilePath);
-	if (rootLock.lockfileVersion !== 3 || !rootLock.packages) {
-		throw new Error("package-lock.json must be lockfileVersion 3 and contain a packages map");
+// Maps a bun.lock key such as "gaxios/https-proxy-agent" to its npm path, node_modules/gaxios/node_modules/https-proxy-agent.
+function npmPathFromBunKey(key) {
+	const names = [];
+	const segments = key.split("/");
+	for (let index = 0; index < segments.length; ) {
+		const scoped = segments[index].startsWith("@");
+		names.push(scoped ? `${segments[index]}/${segments[index + 1]}` : segments[index]);
+		index += scoped ? 2 : 1;
+	}
+	return names.map((name) => `node_modules/${name}`).join("/");
+}
+
+// Reads bun.lock into npm's packages-map shape, so the resolution below works unchanged.
+// Only registry packages and workspaces appear in bun.lock; anything else is rejected.
+function readBunLockPackages() {
+	const bunLock = parse(readFileSync(bunLockPath, "utf8"));
+	if (bunLock.lockfileVersion !== 2 || !bunLock.workspaces || !bunLock.packages) {
+		throw new Error("bun.lock must be lockfileVersion 2 and contain workspaces and packages maps");
 	}
 
-	const lockPackages = rootLock.packages;
+	const lockPackages = {};
+	for (const [workspacePath, workspace] of Object.entries(bunLock.workspaces)) {
+		if (workspacePath !== "") {
+			lockPackages[workspacePath] = { name: workspace.name, version: workspace.version };
+		}
+	}
+	for (const [key, [ident, registry, meta = {}, integrity]] of Object.entries(bunLock.packages)) {
+		if (ident.includes("@workspace:")) {
+			continue;
+		}
+		if (registry !== "") {
+			throw new Error(`bun.lock package ${key} comes from a non-registry source: ${ident}`);
+		}
+		const at = ident.lastIndexOf("@");
+		const name = ident.slice(0, at);
+		const version = ident.slice(at + 1);
+		const entry = { version, resolved: registryTarballUrl(name, version) };
+		if (integrity) {
+			entry.integrity = integrity;
+		}
+		for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "bin", "os", "cpu", "libc"]) {
+			if (meta[field] !== undefined) {
+				entry[field] = meta[field];
+			}
+		}
+		if (meta.hasInstallScript) {
+			entry.hasInstallScript = true;
+		}
+		if (meta.optionalPeers) {
+			entry.peerDependenciesMeta = Object.fromEntries(meta.optionalPeers.map((peer) => [peer, { optional: true }]));
+		}
+		lockPackages[npmPathFromBunKey(key)] = entry;
+	}
+	return lockPackages;
+}
+
+function generateInstallLock() {
+	const lockPackages = readBunLockPackages();
 	const codingAgentPackage = readJson(join(codingAgentDir, "package.json"));
 	const installerPackageJson = createInstallerPackageJson(codingAgentPackage);
 	const internalWorkspaces = getInternalWorkspaces(lockPackages);
@@ -427,14 +478,14 @@ try {
 	if (checkOnly) {
 		if (!existsSync(outputPackageJsonPath) || !existsSync(outputLockfilePath)) {
 			console.error("packages/coding-agent/install-lock is missing generated files.");
-			console.error("Run: npm run install-lock:coding-agent");
+			console.error("Run: bun run install-lock:coding-agent");
 			process.exit(1);
 		}
 		const currentPackageJson = readFileSync(outputPackageJsonPath, "utf8");
 		const currentLockfile = readFileSync(outputLockfilePath, "utf8");
 		if (currentPackageJson !== packageJsonContent || currentLockfile !== lockfileContent) {
 			console.error("packages/coding-agent/install-lock is out of date.");
-			console.error("Run: npm run install-lock:coding-agent");
+			console.error("Run: bun run install-lock:coding-agent");
 			process.exit(1);
 		}
 		console.log("packages/coding-agent/install-lock is up to date.");

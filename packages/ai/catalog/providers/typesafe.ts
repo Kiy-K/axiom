@@ -5,7 +5,7 @@ export default defineProvider({
 	id: "typesafe",
 	classifiers: (ctx): ClassifierModel<"typesafe-system-one">[] => {
 		const metadata = ctx.sources.modelsDevDecisions["typesafe/jev-latest"];
-		if (!metadata || metadata.type !== "decision") {
+		if (metadata?.type !== "decision") {
 			if (ctx.strict) throw new Error("models.dev did not return decision model typesafe/jev-latest");
 			return [];
 		}

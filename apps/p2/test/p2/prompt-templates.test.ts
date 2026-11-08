@@ -237,61 +237,60 @@ test("TUI: templates and skills join slash completion after commands, and expand
 	assert.equal(await runtime.ctx.commands.expand("/nothing here"), "/nothing here");
 });
 
-test(
-	"real worker: /template and /skill: typed in the TUI editor are expanded and sent; the skill block shows collapsed",
-	{ skip: Number(process.versions.node.split(".")[0]) < 26, timeout: 60000 },
-	async (t) => {
-		const fixture = await startFixture();
-		t.after(() => fixture.close());
-		await mkdir(join(fixture.dataDir, "prompts"), { recursive: true });
-		await writeFile(join(fixture.dataDir, "prompts", "greet.md"), "Hello $1!");
-		await mkdir(join(fixture.dataDir, "skills", "deploy"), { recursive: true });
-		await writeFile(
-			join(fixture.dataDir, "skills", "deploy", "SKILL.md"),
-			"---\nname: deploy\ndescription: Deploys the app.\n---\nRun the deploy script.",
-		);
-		await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
-			{ cwd: fixture.workspace },
-			BACKGROUND_CONTEXT,
-		);
-		const terminal = new VirtualTerminal(100, 30);
-		const client = await startTuiClient({
-			terminal,
-			url: new URL(`http://127.0.0.1:${fixture.server.port}`),
-			pollMs: 60000,
-			colorQueryMs: 10,
-		});
-		t.after(() => client.close());
-		const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
-		await poll(async () => (await screen()).includes("New session"), 15000);
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
-		for (const char of "/gre") terminal.sendInput(char);
-		// The templates arrive from the worker shortly after the session opens, and the completion list is computed per
-		// keystroke: retype the last character until it lists the template.
-		let typed = Date.now();
-		await poll(
-			async () => {
-				if ((await screen()).includes("greet")) return true;
-				if (Date.now() - typed > 250) {
-					typed = Date.now();
-					terminal.sendInput("\x7f");
-					terminal.sendInput("e");
-				}
-				return false;
-			},
-			10000,
-			"completion",
-		);
-		for (const char of "et world") terminal.sendInput(char);
-		terminal.sendInput("\x1b");
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Echo: Hello world!"), 20000, "template sent");
-		for (const char of "/skill:deploy go") terminal.sendInput(char);
-		terminal.sendInput("\x1b");
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("[skill] deploy"), 20000, "skill block");
-		assert(!(await screen()).includes("Run the deploy script."), "collapsed until Ctrl+O");
-	},
-);
+test("real worker: /template and /skill: typed in the TUI editor are expanded and sent; the skill block shows collapsed", {
+	skip: Number(process.versions.node.split(".")[0]) < 26,
+	timeout: 60000,
+}, async (t) => {
+	const fixture = await startFixture();
+	t.after(() => fixture.close());
+	await mkdir(join(fixture.dataDir, "prompts"), { recursive: true });
+	await writeFile(join(fixture.dataDir, "prompts", "greet.md"), "Hello $1!");
+	await mkdir(join(fixture.dataDir, "skills", "deploy"), { recursive: true });
+	await writeFile(
+		join(fixture.dataDir, "skills", "deploy", "SKILL.md"),
+		"---\nname: deploy\ndescription: Deploys the app.\n---\nRun the deploy script.",
+	);
+	await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
+		{ cwd: fixture.workspace },
+		BACKGROUND_CONTEXT,
+	);
+	const terminal = new VirtualTerminal(100, 30);
+	const client = await startTuiClient({
+		terminal,
+		url: new URL(`http://127.0.0.1:${fixture.server.port}`),
+		pollMs: 60000,
+		colorQueryMs: 10,
+	});
+	t.after(() => client.close());
+	const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
+	await poll(async () => (await screen()).includes("New session"), 15000);
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
+	for (const char of "/gre") terminal.sendInput(char);
+	// The templates arrive from the worker shortly after the session opens, and the completion list is computed per
+	// keystroke: retype the last character until it lists the template.
+	let typed = Date.now();
+	await poll(
+		async () => {
+			if ((await screen()).includes("greet")) return true;
+			if (Date.now() - typed > 250) {
+				typed = Date.now();
+				terminal.sendInput("\x7f");
+				terminal.sendInput("e");
+			}
+			return false;
+		},
+		10000,
+		"completion",
+	);
+	for (const char of "et world") terminal.sendInput(char);
+	terminal.sendInput("\x1b");
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Echo: Hello world!"), 20000, "template sent");
+	for (const char of "/skill:deploy go") terminal.sendInput(char);
+	terminal.sendInput("\x1b");
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("[skill] deploy"), 20000, "skill block");
+	assert(!(await screen()).includes("Run the deploy script."), "collapsed until Ctrl+O");
+});

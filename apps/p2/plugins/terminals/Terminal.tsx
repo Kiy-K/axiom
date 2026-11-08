@@ -903,7 +903,8 @@ class TerminalSession {
 		cancelAnimationFrame(this.#fling);
 		this.#vt?.scroll("bottom");
 		this.#schedule();
-		this.#socket.send(bytes);
+		// Encoders never return SharedArrayBuffer-backed views; WebSocket.send takes ArrayBuffer-backed ones only.
+		this.#socket.send(bytes as Uint8Array<ArrayBuffer>);
 	}
 
 	/**

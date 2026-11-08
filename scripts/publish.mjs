@@ -34,7 +34,7 @@ const versions = [...new Set(packages.map((pkg) => pkg.version))];
 if (versions.length !== 1) throw new Error(`Publish packages are not lockstep versioned: ${versions.join(", ")}`);
 for (const pkg of packages) {
 	if (!existsSync(join(pkg.directory, "dist"))) {
-		throw new Error(`${pkg.directory}/dist does not exist. Run npm run build before publishing.`);
+		throw new Error(`${pkg.directory}/dist does not exist. Run bun run build before publishing.`);
 	}
 }
 

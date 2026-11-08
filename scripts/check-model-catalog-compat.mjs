@@ -20,7 +20,7 @@
 //
 // Usage: node scripts/check-model-catalog-compat.mjs [--catalog <file>]
 //   --catalog <file>  catalog to check (default: .artifacts/model-catalog/models.all.json,
-//                     written by `npm run generate:model-catalog`)
+//                     written by `bun run generate:model-catalog`)
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

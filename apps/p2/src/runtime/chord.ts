@@ -49,8 +49,7 @@ export type StoreSelf = ChordStoreSelf<P2Principal>;
 export type { FacetSelf };
 /** A reference to an object of `C` (v1's name). */
 export type Ref<C extends Contract> = Reference<C>;
-export type { Held, HostError };
-export type { RefIn };
+export type { Held, HostError, RefIn };
 
 /** A p2 host: principals keyed and revoked the same way on every host. */
 export const createHost = (options: HostOptions): Host =>

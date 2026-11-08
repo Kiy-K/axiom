@@ -302,44 +302,126 @@ const FAKE_WORKER = `const seen=[];export default ({send,onMessage})=>onMessage(
 	if(message.data==='2')send({kind:'navigation',session:'s2',conversation:1});
 });`;
 
-test(
-	"launcher: the clipboard is written only after the copy key or a confirmation; the editor result is dropped after navigation; suspend resets modes",
-	{ skip: !supported, timeout: 30000 },
-	async (t) => {
-		const version = createHash("sha256").update(FAKE_WORKER).digest("hex");
-		const server = createServer((request, response) => {
-			response.end(
-				request.url === "/__p2_tui" ? JSON.stringify({ version, bundle: `/__p2_tui/${version}.mjs` }) : FAKE_WORKER,
-			);
-		});
-		const sockets = new WebSocketServer({ server });
-		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-		t.after(async () => {
-			for (const socket of sockets.clients) socket.terminate();
-			await new Promise<void>((resolve) => sockets.close(() => resolve()));
-			server.closeAllConnections();
-			await new Promise<void>((resolve) => server.close(() => resolve()));
-		});
-		const address = server.address();
-		assert(address && typeof address === "object");
-		const url = new URL(`http://127.0.0.1:${address.port}`);
-		const terminal = new VirtualTerminal(80, 24);
-		const writes: string[] = [];
-		const write = terminal.write.bind(terminal);
-		terminal.write = (data) => {
-			writes.push(data);
-			write(data);
-		};
-		let stops = 0;
-		const stop = terminal.stop.bind(terminal);
-		terminal.stop = () => {
-			stops++;
-			stop();
-		};
-		const copies: string[] = [];
-		let editing: (() => void) | undefined;
-		let suspended: (() => void) | undefined;
-		const actions = launcherActions({
+test("launcher: the clipboard is written only after the copy key or a confirmation; the editor result is dropped after navigation; suspend resets modes", {
+	skip: !supported,
+	timeout: 30000,
+}, async (t) => {
+	const version = createHash("sha256").update(FAKE_WORKER).digest("hex");
+	const server = createServer((request, response) => {
+		response.end(
+			request.url === "/__p2_tui" ? JSON.stringify({ version, bundle: `/__p2_tui/${version}.mjs` }) : FAKE_WORKER,
+		);
+	});
+	const sockets = new WebSocketServer({ server });
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	t.after(async () => {
+		for (const socket of sockets.clients) socket.terminate();
+		await new Promise<void>((resolve) => sockets.close(() => resolve()));
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	});
+	const address = server.address();
+	assert(address && typeof address === "object");
+	const url = new URL(`http://127.0.0.1:${address.port}`);
+	const terminal = new VirtualTerminal(80, 24);
+	const writes: string[] = [];
+	const write = terminal.write.bind(terminal);
+	terminal.write = (data) => {
+		writes.push(data);
+		write(data);
+	};
+	let stops = 0;
+	const stop = terminal.stop.bind(terminal);
+	terminal.stop = () => {
+		stops++;
+		stop();
+	};
+	const copies: string[] = [];
+	let editing: (() => void) | undefined;
+	let suspended: (() => void) | undefined;
+	const actions = launcherActions({
+		url,
+		credentials: {},
+		role: "owner",
+		clipboard: async (text) => {
+			copies.push(text);
+		},
+		editor: ["fake-editor"],
+		runEditor: () =>
+			new Promise((resolve) => {
+				editing = () => resolve(0);
+			}),
+		suspendProcess: () =>
+			new Promise((resolve) => {
+				suspended = resolve;
+			}),
+	});
+	const client = await startTuiClient({ terminal, url, pollMs: 60000, colorQueryMs: 10, actions });
+	t.after(() => client.close());
+	type Seen = { kind: string; ask?: string; data?: string; error?: string; ok?: boolean }[];
+	const seen = async () => (await client.snapshot()) as Seen;
+	await poll(() => writes.join("").includes("READY"));
+	for (const key of ["a", "\r", "\x1b", "\x03", "\x16", "c", "y"]) terminal.sendInput(key);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.deepEqual(copies, [], "unrelated keys never write the clipboard");
+	terminal.sendInput("\x18");
+	await poll(() => copies.length === 1);
+	assert.equal(copies[0], "the answer");
+	await poll(async () => (await seen()).at(-1)?.kind === "redraw", 5000, "redraw after the summary");
+	terminal.sendInput("r");
+	await poll(() => writes.join("").includes("requested text"));
+	assert.equal(copies.length, 1);
+	terminal.sendInput("\x1b");
+	await poll(async () => (await seen()).some((message) => message.kind === "response" && message.error === "denied"));
+	assert.equal(copies.length, 1, "denied: nothing copied");
+	terminal.sendInput("r");
+	await poll(() => writes.filter((data) => data.includes("requested text")).length >= 2);
+	terminal.sendInput("y");
+	await poll(() => copies.length === 2);
+
+	// External editor: worker IO suspended, terminal lent; navigating meanwhile drops the result.
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	writes.length = 0;
+	terminal.sendInput("\x07");
+	await poll(() => editing !== undefined);
+	assert.equal(stops, 1);
+	assert(writes.join("").includes("\x1b[?7h") && writes.join("").includes("\x1b[?1049l"));
+	client.sandbox!.post({ kind: "input", data: "2" });
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	editing!();
+	await poll(async () => (await seen()).at(-1)?.kind === "redraw");
+	assert(!(await seen()).some((message) => message.ask === "editorResult"), "dropped after navigation");
+	assert(writes.join("").includes("\x1b[?1049h\x1b[?7l"), "the worker's modes are restored");
+
+	// Suspend: modes undone and the terminal stopped before SIGTSTP; restored on SIGCONT.
+	writes.length = 0;
+	terminal.sendInput("\x1a");
+	await poll(() => suspended !== undefined);
+	assert.equal(stops, 2);
+	assert(writes.join("").includes("\x1b[?7h\x1b[?1000l"));
+	suspended!();
+	await poll(() => writes.join("").includes("\x1b[?1049h"));
+});
+
+test("real worker: Ctrl+X copies the last answer, /copy asks first, Ctrl+G edits the draft in the external editor", {
+	skip: !supported,
+	timeout: 60000,
+}, async (t) => {
+	const fixture = await startFixture();
+	t.after(() => fixture.close());
+	await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
+		{ cwd: fixture.workspace },
+		BACKGROUND_CONTEXT,
+	);
+	const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
+	const copies: string[] = [];
+	const terminal = new VirtualTerminal(100, 30);
+	const client = await startTuiClient({
+		terminal,
+		url,
+		pollMs: 60000,
+		colorQueryMs: 10,
+		actions: launcherActions({
 			url,
 			credentials: {},
 			role: "owner",
@@ -347,127 +429,41 @@ test(
 				copies.push(text);
 			},
 			editor: ["fake-editor"],
-			runEditor: () =>
-				new Promise((resolve) => {
-					editing = () => resolve(0);
-				}),
-			suspendProcess: () =>
-				new Promise((resolve) => {
-					suspended = resolve;
-				}),
-		});
-		const client = await startTuiClient({ terminal, url, pollMs: 60000, colorQueryMs: 10, actions });
-		t.after(() => client.close());
-		type Seen = { kind: string; ask?: string; data?: string; error?: string; ok?: boolean }[];
-		const seen = async () => (await client.snapshot()) as Seen;
-		await poll(() => writes.join("").includes("READY"));
-		for (const key of ["a", "\r", "\x1b", "\x03", "\x16", "c", "y"]) terminal.sendInput(key);
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		assert.deepEqual(copies, [], "unrelated keys never write the clipboard");
-		terminal.sendInput("\x18");
-		await poll(() => copies.length === 1);
-		assert.equal(copies[0], "the answer");
-		await poll(async () => (await seen()).at(-1)?.kind === "redraw", 5000, "redraw after the summary");
-		terminal.sendInput("r");
-		await poll(() => writes.join("").includes("requested text"));
-		assert.equal(copies.length, 1);
-		terminal.sendInput("\x1b");
-		await poll(async () =>
-			(await seen()).some((message) => message.kind === "response" && message.error === "denied"),
-		);
-		assert.equal(copies.length, 1, "denied: nothing copied");
-		terminal.sendInput("r");
-		await poll(() => writes.filter((data) => data.includes("requested text")).length >= 2);
-		terminal.sendInput("y");
-		await poll(() => copies.length === 2);
-
-		// External editor: worker IO suspended, terminal lent; navigating meanwhile drops the result.
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-		writes.length = 0;
-		terminal.sendInput("\x07");
-		await poll(() => editing !== undefined);
-		assert.equal(stops, 1);
-		assert(writes.join("").includes("\x1b[?7h") && writes.join("").includes("\x1b[?1049l"));
-		client.sandbox!.post({ kind: "input", data: "2" });
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		editing!();
-		await poll(async () => (await seen()).at(-1)?.kind === "redraw");
-		assert(!(await seen()).some((message) => message.ask === "editorResult"), "dropped after navigation");
-		assert(writes.join("").includes("\x1b[?1049h\x1b[?7l"), "the worker's modes are restored");
-
-		// Suspend: modes undone and the terminal stopped before SIGTSTP; restored on SIGCONT.
-		writes.length = 0;
-		terminal.sendInput("\x1a");
-		await poll(() => suspended !== undefined);
-		assert.equal(stops, 2);
-		assert(writes.join("").includes("\x1b[?7h\x1b[?1000l"));
-		suspended!();
-		await poll(() => writes.join("").includes("\x1b[?1049h"));
-	},
-);
-
-test(
-	"real worker: Ctrl+X copies the last answer, /copy asks first, Ctrl+G edits the draft in the external editor",
-	{ skip: !supported, timeout: 60000 },
-	async (t) => {
-		const fixture = await startFixture();
-		t.after(() => fixture.close());
-		await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
-			{ cwd: fixture.workspace },
-			BACKGROUND_CONTEXT,
-		);
-		const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
-		const copies: string[] = [];
-		const terminal = new VirtualTerminal(100, 30);
-		const client = await startTuiClient({
-			terminal,
-			url,
-			pollMs: 60000,
-			colorQueryMs: 10,
-			actions: launcherActions({
-				url,
-				credentials: {},
-				role: "owner",
-				clipboard: async (text) => {
-					copies.push(text);
-				},
-				editor: ["fake-editor"],
-				runEditor: async (_argv, file) => {
-					writeFileSync(file, `${readFileSync(file, "utf8")} edited`);
-					return 0;
-				},
-			}),
-		});
-		t.after(() => client.close());
-		const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
-		type Snapshot = { session?: string; drafts: [string, string][] };
-		const draft = async () => {
-			const { session, drafts } = (await client.snapshot()) as Snapshot;
-			return drafts.find(([id]) => id === `${session}#1`)?.[1];
-		};
-		await poll(async () => (await screen()).includes("New session"), 15000);
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
-		for (const char of "hello") terminal.sendInput(char);
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Echo: hello"), 20000);
-		await new Promise((resolve) => setTimeout(resolve, 300));
-		terminal.sendInput("\x18");
-		await poll(() => copies.length === 1);
-		assert.equal(copies[0], "Echo: hello");
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-		for (const char of "/copy") terminal.sendInput(char);
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Copy 11 characters to the clipboard"));
-		assert.equal(copies.length, 1);
-		terminal.sendInput("y");
-		await poll(() => copies.length === 2);
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-		for (const char of "draft") terminal.sendInput(char);
-		await poll(async () => (await draft()) === "draft");
-		terminal.sendInput("\x07");
-		await poll(async () => (await draft()) === "draft edited");
-		await poll(async () => (await screen()).includes("draft edited"));
-	},
-);
+			runEditor: async (_argv, file) => {
+				writeFileSync(file, `${readFileSync(file, "utf8")} edited`);
+				return 0;
+			},
+		}),
+	});
+	t.after(() => client.close());
+	const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
+	type Snapshot = { session?: string; drafts: [string, string][] };
+	const draft = async () => {
+		const { session, drafts } = (await client.snapshot()) as Snapshot;
+		return drafts.find(([id]) => id === `${session}#1`)?.[1];
+	};
+	await poll(async () => (await screen()).includes("New session"), 15000);
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
+	for (const char of "hello") terminal.sendInput(char);
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Echo: hello"), 20000);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	terminal.sendInput("\x18");
+	await poll(() => copies.length === 1);
+	assert.equal(copies[0], "Echo: hello");
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	for (const char of "/copy") terminal.sendInput(char);
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Copy 11 characters to the clipboard"));
+	assert.equal(copies.length, 1);
+	terminal.sendInput("y");
+	await poll(() => copies.length === 2);
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	for (const char of "draft") terminal.sendInput(char);
+	await poll(async () => (await draft()) === "draft");
+	terminal.sendInput("\x07");
+	await poll(async () => (await draft()) === "draft edited");
+	await poll(async () => (await screen()).includes("draft edited"));
+});

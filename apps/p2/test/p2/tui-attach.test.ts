@@ -206,68 +206,67 @@ test("Ctrl+V: an image uploads after confirmation; text is pasted as typed; file
 	assert.deepEqual(inputs, ["\x1b[200~pasted]52;c;x text\x1b[201~"]);
 });
 
-test(
-	"real worker: /attach and Ctrl+V upload after y, chips show them, Backspace removes one, the next send carries them",
-	{ skip: !supported, timeout: 60000 },
-	async (t) => {
-		const directory = mkdtempSync(join(tmpdir(), "p2-attach-e2e-"));
-		t.after(() => rmSync(directory, { recursive: true, force: true }));
-		const file = join(directory, "report.txt");
-		writeFileSync(file, "quarterly numbers");
-		const fixture = await startFixture();
-		t.after(() => fixture.close());
-		await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
-			{ cwd: fixture.workspace },
-			BACKGROUND_CONTEXT,
-		);
-		const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
-		const terminal = new VirtualTerminal(100, 30);
-		const client = await startTuiClient({
-			terminal,
+test("real worker: /attach and Ctrl+V upload after y, chips show them, Backspace removes one, the next send carries them", {
+	skip: !supported,
+	timeout: 60000,
+}, async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "p2-attach-e2e-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const file = join(directory, "report.txt");
+	writeFileSync(file, "quarterly numbers");
+	const fixture = await startFixture();
+	t.after(() => fixture.close());
+	await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
+		{ cwd: fixture.workspace },
+		BACKGROUND_CONTEXT,
+	);
+	const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
+	const terminal = new VirtualTerminal(100, 30);
+	const client = await startTuiClient({
+		terminal,
+		url,
+		pollMs: 60000,
+		colorQueryMs: 10,
+		actions: launcherActions({
 			url,
-			pollMs: 60000,
-			colorQueryMs: 10,
-			actions: launcherActions({
-				url,
-				credentials: {},
-				role: "owner",
-				readClipboard: {
-					files: async () => null,
-					image: async () => ({
-						bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-						mimeType: "image/png",
-					}),
-					text: async () => null,
-				},
-			}),
-		});
-		t.after(() => client.close());
-		const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
-		await poll(async () => (await screen()).includes("New session"), 15000);
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
-		for (const char of `/attach ${file}`) terminal.sendInput(char);
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Show this local file for upload"));
-		terminal.sendInput("y");
-		await poll(async () => (await screen()).includes("Upload a local file to this session"));
-		assert((await screen()).includes("17 B"));
-		terminal.sendInput("y");
-		await poll(async () => (await screen()).includes("[report.txt 17 B]"), 10000, "chip");
-		for (const char of "summarize") terminal.sendInput(char);
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("Echo: summarize"), 20000);
-		await poll(async () => !(await screen()).includes("[report.txt 17 B]"));
-		// The message carried the upload (the server's input entry lists it).
-		await poll(async () => (await screen()).includes("report.txt"));
-		// Ctrl+V with an image: the launcher's confirmation, then a chip from the launcher's `attached` answer.
-		terminal.sendInput("\x16");
-		await poll(async () => (await screen()).includes("Upload the clipboard image to this session"));
-		terminal.sendInput("y");
-		await poll(async () => /\[clipboard-[^\]]+\.png 8 B\]/.test(await screen()), 10000, "image chip");
-		// Backspace on the empty editor removes the last attachment.
-		terminal.sendInput("\x7f");
-		await poll(async () => !(await screen()).includes(".png 8 B]"));
-	},
-);
+			credentials: {},
+			role: "owner",
+			readClipboard: {
+				files: async () => null,
+				image: async () => ({
+					bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+					mimeType: "image/png",
+				}),
+				text: async () => null,
+			},
+		}),
+	});
+	t.after(() => client.close());
+	const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
+	await poll(async () => (await screen()).includes("New session"), 15000);
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
+	for (const char of `/attach ${file}`) terminal.sendInput(char);
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Show this local file for upload"));
+	terminal.sendInput("y");
+	await poll(async () => (await screen()).includes("Upload a local file to this session"));
+	assert((await screen()).includes("17 B"));
+	terminal.sendInput("y");
+	await poll(async () => (await screen()).includes("[report.txt 17 B]"), 10000, "chip");
+	for (const char of "summarize") terminal.sendInput(char);
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("Echo: summarize"), 20000);
+	await poll(async () => !(await screen()).includes("[report.txt 17 B]"));
+	// The message carried the upload (the server's input entry lists it).
+	await poll(async () => (await screen()).includes("report.txt"));
+	// Ctrl+V with an image: the launcher's confirmation, then a chip from the launcher's `attached` answer.
+	terminal.sendInput("\x16");
+	await poll(async () => (await screen()).includes("Upload the clipboard image to this session"));
+	terminal.sendInput("y");
+	await poll(async () => /\[clipboard-[^\]]+\.png 8 B\]/.test(await screen()), 10000, "image chip");
+	// Backspace on the empty editor removes the last attachment.
+	terminal.sendInput("\x7f");
+	await poll(async () => !(await screen()).includes(".png 8 B]"));
+});

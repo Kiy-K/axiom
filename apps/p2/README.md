@@ -14,14 +14,14 @@ locked-down worker on the visitor's machine.
 Requires Node 22.19+ and the monorepo's installed dependencies and model data. From the repository root:
 
 ```sh
-npm install --ignore-scripts
-npm run hydrate:model-data
+bun install --ignore-scripts
+bun run hydrate:model-data
 cd apps/p2
-npm start
+bun run start
 ```
 
 Open http://127.0.0.1:8788. `PORT` changes the port; `P2_DATA_DIR` changes the default data directory `~/.pi/p2`.
-`P2_FAKE=1 npm start` uses a fake provider for demos, but tools still act on real files.
+`P2_FAKE=1 bun run start` uses a fake provider for demos, but tools still act on real files.
 See [development notes](docs/p2-notes.md) for dev mode, architecture and testing.
 Code mode scripts can orchestrate one-shot agents (`tools.agent`); [docs/workflows.md](docs/workflows.md) has workflow
 patterns with example scripts (fan-out with adversarial verification, drafts plus a judge, fix until a check passes,
@@ -35,7 +35,7 @@ list its hostname in `P2_ALLOWED_HOSTS` (comma-separated for several hosts).
 1. On the host, with `PORT` matching its running server:
 
    ```sh
-   npm run owner-link -- https://your-domain
+   bun run owner-link -- https://your-domain
    ```
 
    The base defaults to `P2_PUBLIC_URL`, or `http://127.0.0.1:$PORT` (8788 when unset). The command uses the server's
@@ -106,17 +106,17 @@ changes, then reload the proxy and mint a fresh owner link. Do not run competing
 ## TUI sign-in
 
 The TUI launcher requires **Node >=26.5.1**; the server still supports Node 22.19+. On slayer use Node 26.11.1:
-`PATH="$HOME/node-v26.11.1-linux-x64/bin:$PATH" LD_LIBRARY_PATH="$HOME/node26-lib" npm run tui`
+`PATH="$HOME/node-v26.11.1-linux-x64/bin:$PATH" LD_LIBRARY_PATH="$HOME/node26-lib" bun run tui`
 (or invoke `~/.local/bin/node26 --import ./src/source.ts src/hosts/tui.ts`).
 
 ```sh
-npm run tui                          # device owner on http://127.0.0.1:$PORT (8788 when unset)
-npm run tui -- https://your-domain    # prompts for an owner link if no valid cookie is saved
-npm run tui -- https://your-domain --owner-link 'https://your-domain/owner#<token>'
-npm run tui -- --radius               # through Radius: your only online server, or --radius <server-id>
+bun run tui                          # device owner on http://127.0.0.1:$PORT (8788 when unset)
+bun run tui -- https://your-domain    # prompts for an owner link if no valid cookie is saved
+bun run tui -- https://your-domain --owner-link 'https://your-domain/owner#<token>'
+bun run tui -- --radius               # through Radius: your only online server, or --radius <server-id>
 ```
 
-With `--radius` the TUI reaches a server signed in with `npm run radius:login`, from anywhere and without a tunnel or
+With `--radius` the TUI reaches a server signed in with `bun run radius:login`, from anywhere and without a tunnel or
 owner link. The first run signs the TUI in to Radius by device code (saved in `~/.pi/p2-tui/radius.json`); Radius
 admits only the server's owner. For now each request is its own Radius connection, so a new server bundle shows up
 within 10 seconds rather than one (see [p2 notes](docs/p2-notes.md#tui-through-radius)).
@@ -174,7 +174,7 @@ From `/home/badlogic/pi-private/apps/p2` (no server restart needed):
 ~/.local/bin/node26 --import ./src/source.ts src/hosts/tui.ts
 # Loopback http://127.0.0.1:8788: automatic device owner, no prompt.
 
-npm run owner-link -- https://p2.mariozechner.at
+bun run owner-link -- https://p2.mariozechner.at
 ~/.local/bin/node26 --import ./src/source.ts src/hosts/tui.ts https://p2.mariozechner.at
 # Paste the private printed link at the prompt. Ctrl+D exits.
 ```
@@ -215,8 +215,8 @@ it directly: p2 proxies `/voice/listen` (WebSocket) and `/voice/speak` for the s
 ## Tests
 
 ```sh
-npm run check
-npm test
+bun run check
+bun run test
 ```
 
 Tests use fake providers, temporary data/workspaces and port 0. Browser tests use `CHROMIUM_BIN`; daemon/SSH tests

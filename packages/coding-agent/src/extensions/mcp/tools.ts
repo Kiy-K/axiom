@@ -49,6 +49,7 @@ export function toToolExposure(exposure: McpExposure): ToolExposure {
 
 /** Visual (wrapped) result lines shown before the output is expanded. */
 const OUTPUT_PREVIEW_LINES = 5;
+
 /** Tool that reads the resources named by resource links. */
 export { READ_MCP_RESOURCE_TOOL };
 

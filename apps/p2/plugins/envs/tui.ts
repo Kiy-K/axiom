@@ -91,7 +91,7 @@ function openEnvs(ctx: TuiContext): void {
 	const accept = async (env: EnvSummary) => {
 		const service = owner();
 		const key = env.test && !env.test.ok ? env.test.hostKey : undefined;
-		if (!service || service.variant !== "owner" || !key || env.config.type !== "ssh") return;
+		if (service?.variant !== "owner" || !key || env.config.type !== "ssh") return;
 		const yes = await confirm(ctx, [
 			`Trust ${env.name}'s host key?`,
 			`${lineText(env.config.user ? `${env.config.user}@` : "")}${lineText(env.config.host)}${env.config.port ? `:${env.config.port}` : ""} · ${key.state === "changed" ? "the key CHANGED since it was trusted" : "unknown key"}`,

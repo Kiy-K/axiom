@@ -54,7 +54,7 @@ describe("durable registry bridge", () => {
 		const render = second.extension("guard")?.sections?.[0]?.render as () => string;
 		assert.equal(render(), "v2");
 		// The old snapshot still has the old code.
-		assert.equal((first.extension("guard")?.sections?.[0]?.render as () => string)(), "v1");
+		assert.equal((first.extension("guard")?.sections?.[0]?.render as (() => string) | undefined)?.(), "v1");
 		assert.ok(published > 0);
 	});
 

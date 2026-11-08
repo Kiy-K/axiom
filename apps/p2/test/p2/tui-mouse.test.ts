@@ -106,128 +106,125 @@ async function fakeLauncher(
 	return { client, terminal, writes, copies, seen };
 }
 
-test(
-	"launcher: mouse reports reach the worker; pi-tui's copy is accepted only after the launcher saw the release",
-	{ skip: !supported, timeout: 30000 },
-	async (t) => {
-		const { client, terminal, writes, copies, seen } = await fakeLauncher(t, "on");
-		const responses = async () =>
-			(await seen()).filter((message) => message.kind === "response") as { ok?: boolean; error?: string }[];
-		assert(writes.join("").includes("\x1b[?1000h\x1b[?1002h\x1b[?1004h\x1b[?1006h"));
-		assert(!writes.join("").includes("\x1b[?1003h"), "all-motion needs the 'all' policy");
-		// No gesture: a worker request on its own is denied.
-		terminal.sendInput("w");
-		await poll(async () => (await responses()).length === 1);
-		// A wheel notch and a plain click: forwarded, the click's release opens no window.
-		for (const data of [wheelUp(5, 5), press(5, 5), release(5, 5)]) terminal.sendInput(data);
-		await poll(async () => (await responses()).length === 2);
-		assert.deepEqual(copies, []);
-		assert(
-			(await responses()).every((response) => response.error === "denied"),
-			"denied without the launcher's own gesture",
-		);
-		// A drag: the release the launcher saw permits exactly this copy.
-		for (const data of [press(5, 5), drag(12, 6), release(12, 6)]) terminal.sendInput(data);
-		await poll(async () => (await responses()).length === 3);
-		assert.deepEqual(copies, ["selected text"]);
-		assert.equal((await responses()).at(-1)?.ok, true);
-		const inputs = (await seen()).filter((message) => message.kind === "input").map((message) => message.data);
-		assert.deepEqual(inputs.slice(-3), [press(5, 5), drag(12, 6), release(12, 6)], "pi-tui selects in the worker");
-		// The window is single-use.
-		terminal.sendInput("w");
-		await poll(async () => (await responses()).length === 4);
-		assert.equal((await responses()).at(-1)?.error, "denied");
-		assert.equal(copies.length, 1);
-		writes.length = 0;
-		await client.close();
-		assert(writes.join("").includes("\x1b[?1000l\x1b[?1002l\x1b[?1004l\x1b[?1006l"));
-	},
-);
+test("launcher: mouse reports reach the worker; pi-tui's copy is accepted only after the launcher saw the release", {
+	skip: !supported,
+	timeout: 30000,
+}, async (t) => {
+	const { client, terminal, writes, copies, seen } = await fakeLauncher(t, "on");
+	const responses = async () =>
+		(await seen()).filter((message) => message.kind === "response") as { ok?: boolean; error?: string }[];
+	assert(writes.join("").includes("\x1b[?1000h\x1b[?1002h\x1b[?1004h\x1b[?1006h"));
+	assert(!writes.join("").includes("\x1b[?1003h"), "all-motion needs the 'all' policy");
+	// No gesture: a worker request on its own is denied.
+	terminal.sendInput("w");
+	await poll(async () => (await responses()).length === 1);
+	// A wheel notch and a plain click: forwarded, the click's release opens no window.
+	for (const data of [wheelUp(5, 5), press(5, 5), release(5, 5)]) terminal.sendInput(data);
+	await poll(async () => (await responses()).length === 2);
+	assert.deepEqual(copies, []);
+	assert(
+		(await responses()).every((response) => response.error === "denied"),
+		"denied without the launcher's own gesture",
+	);
+	// A drag: the release the launcher saw permits exactly this copy.
+	for (const data of [press(5, 5), drag(12, 6), release(12, 6)]) terminal.sendInput(data);
+	await poll(async () => (await responses()).length === 3);
+	assert.deepEqual(copies, ["selected text"]);
+	assert.equal((await responses()).at(-1)?.ok, true);
+	const inputs = (await seen()).filter((message) => message.kind === "input").map((message) => message.data);
+	assert.deepEqual(inputs.slice(-3), [press(5, 5), drag(12, 6), release(12, 6)], "pi-tui selects in the worker");
+	// The window is single-use.
+	terminal.sendInput("w");
+	await poll(async () => (await responses()).length === 4);
+	assert.equal((await responses()).at(-1)?.error, "denied");
+	assert.equal(copies.length, 1);
+	writes.length = 0;
+	await client.close();
+	assert(writes.join("").includes("\x1b[?1000l\x1b[?1002l\x1b[?1004l\x1b[?1006l"));
+});
 
-test(
-	"launcher: with the mouse off pi-tui does not capture it and no gesture opens a copy window",
-	{ skip: !supported, timeout: 30000 },
-	async (t) => {
-		const all = await fakeLauncher(t, "all");
-		assert(all.writes.join("").includes("\x1b[?1003h"));
-		const none = await fakeLauncher(t, "off");
-		assert(!none.writes.join("").includes("\x1b[?1000h"));
-		assert.equal((await none.seen()).find((message) => message.kind === "activate") ? 1 : 0, 1);
-		for (const data of [press(5, 5), drag(12, 6), release(12, 6)]) none.terminal.sendInput(data);
-		await poll(async () => (await none.seen()).some((message) => message.kind === "response"));
-		assert.deepEqual(none.copies, []);
-	},
-);
+test("launcher: with the mouse off pi-tui does not capture it and no gesture opens a copy window", {
+	skip: !supported,
+	timeout: 30000,
+}, async (t) => {
+	const all = await fakeLauncher(t, "all");
+	assert(all.writes.join("").includes("\x1b[?1003h"));
+	const none = await fakeLauncher(t, "off");
+	assert(!none.writes.join("").includes("\x1b[?1000h"));
+	assert.equal((await none.seen()).find((message) => message.kind === "activate") ? 1 : 0, 1);
+	for (const data of [press(5, 5), drag(12, 6), release(12, 6)]) none.terminal.sendInput(data);
+	await poll(async () => (await none.seen()).some((message) => message.kind === "response"));
+	assert.deepEqual(none.copies, []);
+});
 
-test(
-	"real worker: the wheel scrolls the transcript, a drag selects it, the release copies the selected text once",
-	{ skip: !supported, timeout: 90000 },
-	async (t) => {
-		const fixture = await startFixture();
-		t.after(() => fixture.close());
-		await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
-			{ cwd: fixture.workspace },
-			BACKGROUND_CONTEXT,
-		);
-		const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
-		const terminal = new VirtualTerminal(80, 16);
-		const writes: string[] = [];
-		const write = terminal.write.bind(terminal);
-		terminal.write = (data) => {
-			writes.push(data);
-			write(data);
-		};
-		const copies: string[] = [];
-		const client = await startTuiClient({
-			terminal,
+test("real worker: the wheel scrolls the transcript, a drag selects it, the release copies the selected text once", {
+	skip: !supported,
+	timeout: 90000,
+}, async (t) => {
+	const fixture = await startFixture();
+	t.after(() => fixture.close());
+	await (await holdIn(fixture.browser(), Sessions, {}, "owner")).create(
+		{ cwd: fixture.workspace },
+		BACKGROUND_CONTEXT,
+	);
+	const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
+	const terminal = new VirtualTerminal(80, 16);
+	const writes: string[] = [];
+	const write = terminal.write.bind(terminal);
+	terminal.write = (data) => {
+		writes.push(data);
+		write(data);
+	};
+	const copies: string[] = [];
+	const client = await startTuiClient({
+		terminal,
+		url,
+		pollMs: 60000,
+		colorQueryMs: 10,
+		mouse: "on",
+		actions: launcherActions({
 			url,
-			pollMs: 60000,
-			colorQueryMs: 10,
-			mouse: "on",
-			actions: launcherActions({
-				url,
-				credentials: {},
-				role: "owner",
-				clipboard: async (text) => {
-					copies.push(text);
-				},
-			}),
-		});
-		t.after(() => client.close());
-		const lines = async () => terminal.flushAndGetViewport();
-		const screen = async () => (await lines()).join("\n");
-		await poll(async () => (await screen()).includes("New session"), 15000);
-		assert(writes.join("").includes("\x1b[?1000h"), "pi-tui captures the mouse");
-		terminal.sendInput("\x1b[B");
+			credentials: {},
+			role: "owner",
+			clipboard: async (text) => {
+				copies.push(text);
+			},
+		}),
+	});
+	t.after(() => client.close());
+	const lines = async () => terminal.flushAndGetViewport();
+	const screen = async () => (await lines()).join("\n");
+	await poll(async () => (await screen()).includes("New session"), 15000);
+	assert(writes.join("").includes("\x1b[?1000h"), "pi-tui captures the mouse");
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
+	for (const word of ["alpha", "bravo", "charlie", "delta"]) {
+		for (const char of word) terminal.sendInput(char);
 		terminal.sendInput("\r");
-		await poll(async () => !(await screen()).includes("Connecting conversation") && (await screen()).includes("•"));
-		for (const word of ["alpha", "bravo", "charlie", "delta"]) {
-			for (const char of word) terminal.sendInput(char);
-			terminal.sendInput("\r");
-			await poll(async () => (await screen()).includes(`Echo: ${word}`), 20000);
-		}
-		await poll(async () => !(await screen()).includes("Echo: alpha"));
-		// Wheel up scrolls the transcript back (pi: "auto" lines per notch).
-		for (let index = 0; index < 30 && !(await screen()).includes("Echo: alpha"); index++) {
-			terminal.sendInput(wheelUp(10, 4));
-			await new Promise((resolve) => setTimeout(resolve, 40));
-		}
-		await poll(async () => (await screen()).includes("Echo: alpha"), 5000, "scrolled up");
-		// Drag across "Echo: alpha" selects it in pi-tui; the release copies it, once.
-		const rows = await lines();
-		const row = rows.findIndex((line) => line.includes("Echo: alpha"));
-		const column = rows[row]!.indexOf("Echo: alpha");
-		terminal.sendInput(press(column + 1, row + 1));
-		terminal.sendInput(drag(column + 6, row + 1));
-		terminal.sendInput(drag(column + 11, row + 1));
-		assert.deepEqual(copies, []);
-		terminal.sendInput(release(column + 11, row + 1));
-		await poll(() => copies.length === 1);
-		assert.equal(copies[0], "Echo: alpha");
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-		assert.equal(copies.length, 1);
-		writes.length = 0;
-		await client.close();
-		assert(writes.join("").includes("\x1b[?1000l"), "mouse modes undone on exit");
-	},
-);
+		await poll(async () => (await screen()).includes(`Echo: ${word}`), 20000);
+	}
+	await poll(async () => !(await screen()).includes("Echo: alpha"));
+	// Wheel up scrolls the transcript back (pi: "auto" lines per notch).
+	for (let index = 0; index < 30 && !(await screen()).includes("Echo: alpha"); index++) {
+		terminal.sendInput(wheelUp(10, 4));
+		await new Promise((resolve) => setTimeout(resolve, 40));
+	}
+	await poll(async () => (await screen()).includes("Echo: alpha"), 5000, "scrolled up");
+	// Drag across "Echo: alpha" selects it in pi-tui; the release copies it, once.
+	const rows = await lines();
+	const row = rows.findIndex((line) => line.includes("Echo: alpha"));
+	const column = rows[row]!.indexOf("Echo: alpha");
+	terminal.sendInput(press(column + 1, row + 1));
+	terminal.sendInput(drag(column + 6, row + 1));
+	terminal.sendInput(drag(column + 11, row + 1));
+	assert.deepEqual(copies, []);
+	terminal.sendInput(release(column + 11, row + 1));
+	await poll(() => copies.length === 1);
+	assert.equal(copies[0], "Echo: alpha");
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	assert.equal(copies.length, 1);
+	writes.length = 0;
+	await client.close();
+	assert(writes.join("").includes("\x1b[?1000l"), "mouse modes undone on exit");
+});

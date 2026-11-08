@@ -696,56 +696,54 @@ test("a lease gets servers only on environments its session works on: its own, i
 	assert.deepEqual(s1.errors.value, [`${one.cwd}: not where this session works`]);
 });
 
-test(
-	"environments: servers start through the environment's pi-env daemon, on one connection that closes with the last instance",
-	{ skip: existsSync(DAEMON) ? false : `no pi-env daemon at ${DAEMON} (npm run build:daemon in packages/env)` },
-	async (t) => {
-		// The "environment" is this machine through a local daemon: no SSH, the same operations.
-		const connections: Connection[] = [];
-		const facet = mcpServerFacet(LINGER_MS, () => () => {
-			const connection = new Connection({ command: [DAEMON] });
-			connections.push(connection);
-			return connection;
-		});
-		const host = await mcpHost(
-			t,
-			(paths) => ({ files: stdio(paths), tools: stdio(paths, { runOn: { env: "box" }, cwd: "~" }) }),
-			{ envs: { box: { type: "ssh", host: "box.invalid" } }, facet },
-		);
-		const there = { env: "box", cwd: host.at("work").cwd };
-		const s1 = await host.worker("s1", 1, { env: "box" });
-		await s1.setLocations({ locations: [there] }, TEST);
-		const servers = await until(s1.servers, (value) => isUp("files")(value) && isUp("tools")(value));
-		assert.deepEqual(
-			servers.map((instance) => [instance.server, instance.runsOn]),
-			[
-				["files", { env: "box" }],
-				["tools", { env: "box" }],
-			],
-		);
-		assert.equal(connections.length, 1);
-		const daemon = (await connections[0]!.info()).pid;
-		// Both run under the one daemon with the location as their root: `files` at the location, `tools` at its cwd `~`,
-		// the environment's home.
-		const files = await whoami(s1, there, "files");
-		const tools = await whoami(s1, there, "tools");
-		assert.deepEqual([files.ppid, tools.ppid], [daemon, daemon]);
-		assert.equal(files.cwd, there.cwd);
-		assert.deepEqual(files.roots, [{ uri: pathToFileURL(there.cwd).href }]);
-		assert.equal(tools.cwd, homedir());
-		assert.deepEqual(tools.roots, files.roots);
-		assert.equal(
-			textOf(await s1.call({ location: there, server: "files", tool: "echo", args: { text: "far" } }, TEST)),
-			"echo: far",
-		);
-		// The last instance there closes the connection: the daemon ends, and the servers with it.
-		await s1.setLocations({ locations: [] }, TEST);
-		await exited(files.pid);
-		await exited(tools.pid);
-		await exited(daemon);
-		assert.equal(connections.length, 1);
-	},
-);
+test("environments: servers start through the environment's pi-env daemon, on one connection that closes with the last instance", {
+	skip: existsSync(DAEMON) ? false : `no pi-env daemon at ${DAEMON} (npm run build:daemon in packages/env)`,
+}, async (t) => {
+	// The "environment" is this machine through a local daemon: no SSH, the same operations.
+	const connections: Connection[] = [];
+	const facet = mcpServerFacet(LINGER_MS, () => () => {
+		const connection = new Connection({ command: [DAEMON] });
+		connections.push(connection);
+		return connection;
+	});
+	const host = await mcpHost(
+		t,
+		(paths) => ({ files: stdio(paths), tools: stdio(paths, { runOn: { env: "box" }, cwd: "~" }) }),
+		{ envs: { box: { type: "ssh", host: "box.invalid" } }, facet },
+	);
+	const there = { env: "box", cwd: host.at("work").cwd };
+	const s1 = await host.worker("s1", 1, { env: "box" });
+	await s1.setLocations({ locations: [there] }, TEST);
+	const servers = await until(s1.servers, (value) => isUp("files")(value) && isUp("tools")(value));
+	assert.deepEqual(
+		servers.map((instance) => [instance.server, instance.runsOn]),
+		[
+			["files", { env: "box" }],
+			["tools", { env: "box" }],
+		],
+	);
+	assert.equal(connections.length, 1);
+	const daemon = (await connections[0]!.info()).pid;
+	// Both run under the one daemon with the location as their root: `files` at the location, `tools` at its cwd `~`,
+	// the environment's home.
+	const files = await whoami(s1, there, "files");
+	const tools = await whoami(s1, there, "tools");
+	assert.deepEqual([files.ppid, tools.ppid], [daemon, daemon]);
+	assert.equal(files.cwd, there.cwd);
+	assert.deepEqual(files.roots, [{ uri: pathToFileURL(there.cwd).href }]);
+	assert.equal(tools.cwd, homedir());
+	assert.deepEqual(tools.roots, files.roots);
+	assert.equal(
+		textOf(await s1.call({ location: there, server: "files", tool: "echo", args: { text: "far" } }, TEST)),
+		"echo: far",
+	);
+	// The last instance there closes the connection: the daemon ends, and the servers with it.
+	await s1.setLocations({ locations: [] }, TEST);
+	await exited(files.pid);
+	await exited(tools.pid);
+	await exited(daemon);
+	assert.equal(connections.length, 1);
+});
 
 test("a reload of the plugin keeps the leases and the tools: the new supervisor starts what they use", async (t) => {
 	const host = await mcpHost(t, (paths) => ({ files: stdio(paths) }));

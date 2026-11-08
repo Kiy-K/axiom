@@ -14,10 +14,8 @@ export type BuiltinImageProvider = {
 	[TProvider in keyof Catalog]: [ImageModelIds<TProvider>] extends [never] ? never : TProvider;
 }[keyof Catalog];
 
-type BuiltinImageModel<
-	TProvider extends BuiltinImageProvider,
-	TModelId extends ImageModelIds<TProvider>,
-> = Catalog[TProvider][TModelId] extends ImageModel<infer TApi extends ImageApi> ? ImageModel<TApi> : never;
+type BuiltinImageModel<TProvider extends BuiltinImageProvider, TModelId extends ImageModelIds<TProvider>> =
+	Catalog[TProvider][TModelId] extends ImageModel<infer TApi extends ImageApi> ? ImageModel<TApi> : never;
 
 const imageModelsByProvider = new Map<string, Map<string, ImageModel<ImageApi>>>();
 for (const [provider, models] of Object.entries(IMAGE_MODELS)) {

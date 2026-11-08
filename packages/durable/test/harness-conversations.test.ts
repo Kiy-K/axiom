@@ -64,7 +64,11 @@ async function allEntries(conversation: Conversation, order?: ScanOrder): Promis
 	let cursor: Parameters<Conversation["entries"]>[2];
 	do {
 		const page = await conversation.entries(order === undefined ? {} : { order }, 2, cursor, context);
-		for (const entry of page.items) texts.push((entry.model?.[0] as { content: string }).content);
+		for (const entry of page.items) {
+			const model = entry.model?.[0] as { content: string } | undefined;
+			if (model === undefined) throw new Error(`entry ${entry.id} has no text model`);
+			texts.push(model.content);
+		}
 		cursor = page.next;
 	} while (cursor !== undefined);
 	return texts;

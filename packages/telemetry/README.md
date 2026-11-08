@@ -595,14 +595,14 @@ The package does not use `AsyncLocalStorage` or another runtime-specific ambient
 From this package directory:
 
 ```bash
-npm test
-npm run build
+bun run test
+bun run build
 ```
 
 Repository-wide type checking, formatting, linting, and smoke checks run with:
 
 ```bash
-npm run check
+bun run check
 ```
 
 ## License

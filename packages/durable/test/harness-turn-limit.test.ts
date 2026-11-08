@@ -243,7 +243,7 @@ describe("turn limit", () => {
 		const handedOff = await (await root.submit({ type: "input", content: "two" }, context)).wait(context);
 		expect(handedOff).toMatchObject({ status: "unanswered", reason: "turn_limit" });
 		const resets = (await allEntries(root)).filter((entry) => ResetEntry.is(entry));
-		expect(resets.map((entry) => (entry.model?.[0] as { content: string }).content)).toEqual(["fresh"]);
+		expect(resets.map((entry) => (entry.model?.[0] as { content: string } | undefined)?.content)).toEqual(["fresh"]);
 		await harness.close(context);
 	});
 

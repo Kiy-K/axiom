@@ -64,6 +64,7 @@ export function DiffBlock({ diff, language }: { diff: string; language?: string 
 		<pre className="diff hljs">
 			<code className="diff-lines">
 				{rows.map((row, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: rows are a fixed snapshot for one render; the index keeps identical lines distinct.
 					<span key={`${index}:${row.prefix}`} className={`diff-line ${row.kind}`}>
 						{row.prefix}
 						{row.content}
@@ -160,6 +161,7 @@ export function LinesBlock({
 		<pre className="diff patch hljs" style={{ "--gutter": `${digits}ch` } as CSSProperties}>
 			<code className="diff-lines">
 				{lines.map((line, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: lines are a fixed snapshot; the index also marks the selection by position.
 					<Fragment key={`${index}:${line.kind}`}>
 						<span
 							className={`diff-line ${line.kind} ${selected?.(index) ? "selected" : ""} ${marked === index ? "marked" : ""}`}

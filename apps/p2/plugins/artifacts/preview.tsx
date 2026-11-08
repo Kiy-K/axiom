@@ -145,6 +145,7 @@ export function ArtifactPanel({
 						{diagnosticsOpen && (
 							<div>
 								{diagnostics.map((entry, index) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: static list for one render; the index keeps repeated messages distinct.
 									<p key={`${entry.level}-${index}`}>
 										<strong>{entry.level}</strong> {entry.message}
 									</p>

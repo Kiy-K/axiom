@@ -83,71 +83,64 @@ describe("share links on loopback", () => {
 		assert.equal((await http(port, "/owner/check", { headers: host })).status, 200);
 	});
 
-	it(
-		"in Chromium: the owner stays owner; fresh profiles join read-only and read/write",
-		{ skip: !browserTests, timeout: 120_000 },
-		async () => {
-			const origin = `http://127.0.0.1:${fixture.server.port}`;
-			const owner = await Browser.start();
-			const viewer = await Browser.start();
-			const writer = await Browser.start();
-			const ownerUi = `document.querySelector('.composer textarea') && !document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`;
-			try {
-				await owner.open(`${origin}/`);
-				await owner.wait(ownerUi);
-				// The owner opening its own link goes straight to the session.
-				await owner.open(`${origin}${view}`);
-				await owner.wait(`location.pathname === ${JSON.stringify(`/s/${session}`)}`);
-				await owner.wait(ownerUi);
+	it("in Chromium: the owner stays owner; fresh profiles join read-only and read/write", {
+		skip: !browserTests,
+		timeout: 120_000,
+	}, async () => {
+		const origin = `http://127.0.0.1:${fixture.server.port}`;
+		const owner = await Browser.start();
+		const viewer = await Browser.start();
+		const writer = await Browser.start();
+		const ownerUi = `document.querySelector('.composer textarea') && !document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`;
+		try {
+			await owner.open(`${origin}/`);
+			await owner.wait(ownerUi);
+			// The owner opening its own link goes straight to the session.
+			await owner.open(`${origin}${view}`);
+			await owner.wait(`location.pathname === ${JSON.stringify(`/s/${session}`)}`);
+			await owner.wait(ownerUi);
 
-				// A fresh profile (incognito) gets the join form and joins read-only: no composer, cannot send.
-				await viewer.open(`${origin}${view}`);
-				await viewer.wait(`document.querySelector('#join #name') && document.querySelector('#join button')`);
-				await viewer.evaluate(setInput("#name", "Incognito"));
-				await viewer.click("#join button");
-				await viewer.wait(
-					`document.querySelector('nav[aria-label="Shared session"]') && document.querySelector('.subagent-bar')?.textContent.includes('Joined as Incognito · read-only') && !document.querySelector('.offline')`,
-				);
-				assert.equal(
-					await viewer.evaluate<boolean>(`Boolean(document.querySelector('.composer textarea'))`),
-					false,
-				);
-				const denied = await viewer.evaluate<number[]>(
-					`Promise.all(['/owner/check','/owner-token'].map((path)=>fetch(path).then((r)=>r.status)))`,
-				);
-				assert.deepEqual(denied, [401, 403]);
-				// Still the guest on the app's start page (its guest cookie wins over loopback).
-				await viewer.open(`${origin}/`);
-				await viewer.wait(
-					`document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`,
-				);
-				assert.equal(
-					await viewer.evaluate<boolean>(`Boolean(document.querySelector('.composer textarea'))`),
-					false,
-				);
+			// A fresh profile (incognito) gets the join form and joins read-only: no composer, cannot send.
+			await viewer.open(`${origin}${view}`);
+			await viewer.wait(`document.querySelector('#join #name') && document.querySelector('#join button')`);
+			await viewer.evaluate(setInput("#name", "Incognito"));
+			await viewer.click("#join button");
+			await viewer.wait(
+				`document.querySelector('nav[aria-label="Shared session"]') && document.querySelector('.subagent-bar')?.textContent.includes('Joined as Incognito · read-only') && !document.querySelector('.offline')`,
+			);
+			assert.equal(await viewer.evaluate<boolean>(`Boolean(document.querySelector('.composer textarea'))`), false);
+			const denied = await viewer.evaluate<number[]>(
+				`Promise.all(['/owner/check','/owner-token'].map((path)=>fetch(path).then((r)=>r.status)))`,
+			);
+			assert.deepEqual(denied, [401, 403]);
+			// Still the guest on the app's start page (its guest cookie wins over loopback).
+			await viewer.open(`${origin}/`);
+			await viewer.wait(
+				`document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`,
+			);
+			assert.equal(await viewer.evaluate<boolean>(`Boolean(document.querySelector('.composer textarea'))`), false);
 
-				// A read/write link gives a full guest, who can send.
-				await writer.open(`${origin}${full}`);
-				await writer.wait(`document.querySelector('#join #name')`);
-				await writer.evaluate(setInput("#name", "Writer"));
-				await writer.click("#join button");
-				await writer.wait(
-					`document.querySelector('nav[aria-label="Shared session"]') && document.querySelector('.composer textarea') && !document.querySelector('.offline')`,
-				);
-				await writer.evaluate(setInput(".composer textarea", "hello from the writer"));
-				await writer.click("button[aria-label=Send]");
-				const chat = await holdIn(fixture.browser(), Chat, { session, conversation: 1 }, "participant");
-				await until(chat.view, (value) => JSON.stringify(value?.entries ?? []).includes("hello from the writer"));
+			// A read/write link gives a full guest, who can send.
+			await writer.open(`${origin}${full}`);
+			await writer.wait(`document.querySelector('#join #name')`);
+			await writer.evaluate(setInput("#name", "Writer"));
+			await writer.click("#join button");
+			await writer.wait(
+				`document.querySelector('nav[aria-label="Shared session"]') && document.querySelector('.composer textarea') && !document.querySelector('.offline')`,
+			);
+			await writer.evaluate(setInput(".composer textarea", "hello from the writer"));
+			await writer.click("button[aria-label=Send]");
+			const chat = await holdIn(fixture.browser(), Chat, { session, conversation: 1 }, "participant");
+			await until(chat.view, (value) => JSON.stringify(value?.entries ?? []).includes("hello from the writer"));
 
-				// The owner's browser is unaffected.
-				await owner.open(`${origin}/`);
-				await owner.wait(ownerUi);
-				assert.equal(await owner.evaluate<number>(`fetch('/owner/check').then((r)=>r.status)`), 200);
-			} finally {
-				await owner.close();
-				await viewer.close();
-				await writer.close();
-			}
-		},
-	);
+			// The owner's browser is unaffected.
+			await owner.open(`${origin}/`);
+			await owner.wait(ownerUi);
+			assert.equal(await owner.evaluate<number>(`fetch('/owner/check').then((r)=>r.status)`), 200);
+		} finally {
+			await owner.close();
+			await viewer.close();
+			await writer.close();
+		}
+	});
 });

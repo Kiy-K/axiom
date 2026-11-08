@@ -363,6 +363,7 @@ const Images = memo(function Images({ images }: { images: ImageContent[] }) {
 		<div className="images">
 			{images.map((image, index) => (
 				<img
+					// biome-ignore lint/suspicious/noArrayIndexKey: images of one message never reorder; the index keeps identical images distinct.
 					key={`${image.mimeType}-${index}`}
 					src={`data:${image.mimeType};base64,${image.data}`}
 					alt=""

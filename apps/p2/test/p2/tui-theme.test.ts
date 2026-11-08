@@ -200,64 +200,63 @@ test("terminal color probe consumes replies, never forwards them, and tracks sch
 	assert.equal(colorFgBgScheme({ COLORFGBG: "0;15" }), "light");
 });
 
-test(
-	"launcher posts capabilities, preferences and terminal colors as data before activation and on change",
-	{ skip: Number(process.versions.node.split(".")[0]) < 26, timeout: 15000 },
-	async (t) => {
-		const source = `const seen=[];export default ({onMessage})=>onMessage(message=>{
+test("launcher posts capabilities, preferences and terminal colors as data before activation and on change", {
+	skip: Number(process.versions.node.split(".")[0]) < 26,
+	timeout: 15000,
+}, async (t) => {
+	const source = `const seen=[];export default ({onMessage})=>onMessage(message=>{
 			if(message.kind==='snapshot')return seen;
 			if(message.kind!=='resize')seen.push({kind:message.kind,preferences:message.preferences,platform:message.platform,terminal:message.terminal});
 		});`;
-		const version = createHash("sha256").update(source).digest("hex");
-		const server = createServer((request, response) => {
-			response.setHeader("Content-Type", request.url === "/__p2_tui" ? "application/json" : "text/javascript");
-			response.end(
-				request.url === "/__p2_tui" ? JSON.stringify({ version, bundle: `/__p2_tui/${version}.mjs` }) : source,
-			);
-		});
-		const sockets = new WebSocketServer({ server });
-		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-		const address = server.address();
-		assert(address && typeof address === "object");
-		t.after(async () => {
-			for (const socket of sockets.clients) socket.terminate();
-			await new Promise<void>((resolve) => sockets.close(() => resolve()));
-			server.closeAllConnections();
-			await new Promise<void>((resolve) => server.close(() => resolve()));
-		});
-		let notify: ((next: TuiLocalPreferences) => void) | undefined;
-		const terminal = new VirtualTerminal();
-		const client = await startTuiClient({
-			terminal,
-			url: new URL(`http://127.0.0.1:${address.port}`),
-			pollMs: 60000,
-			colorQueryMs: 10,
-			capabilities: { trueColor: false, platform: "darwin", windowsKeys: false },
-			preferences: {
-				current: local({ theme: "light" }),
-				subscribe: (listener) => {
-					notify = listener;
-					return () => {};
-				},
-			},
-		});
-		t.after(() => client.close());
-		type Seen = { kind: string; preferences?: TuiLocalPreferences; platform?: string; terminal?: TerminalState }[];
-		const seen = async () => (await client.snapshot()) as Seen;
-		assert.deepEqual(
-			(await seen()).slice(0, 3).map((item) => item.kind),
-			["capabilities", "preferences", "activate"],
+	const version = createHash("sha256").update(source).digest("hex");
+	const server = createServer((request, response) => {
+		response.setHeader("Content-Type", request.url === "/__p2_tui" ? "application/json" : "text/javascript");
+		response.end(
+			request.url === "/__p2_tui" ? JSON.stringify({ version, bundle: `/__p2_tui/${version}.mjs` }) : source,
 		);
-		assert.equal((await seen())[0]?.platform, "darwin");
-		await poll(async () => (await seen()).some((item) => item.kind === "terminalColors"));
-		notify?.(local({ theme: "dark" }));
-		await poll(async () => (await seen()).at(-1)?.preferences?.theme === "dark");
-		// Terminal replies to the launcher's query are consumed by the launcher, never forwarded.
-		terminal.sendInput("\x1b]11;rgb:0000/0000/0000\x07");
-		await poll(async () => {
-			const last = (await seen()).at(-1);
-			return last?.kind === "terminalColors" && last.terminal?.colors.background?.r === 0;
-		});
-		assert(!(await seen()).some((item) => item.kind === "input"));
-	},
-);
+	});
+	const sockets = new WebSocketServer({ server });
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const address = server.address();
+	assert(address && typeof address === "object");
+	t.after(async () => {
+		for (const socket of sockets.clients) socket.terminate();
+		await new Promise<void>((resolve) => sockets.close(() => resolve()));
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	});
+	let notify: ((next: TuiLocalPreferences) => void) | undefined;
+	const terminal = new VirtualTerminal();
+	const client = await startTuiClient({
+		terminal,
+		url: new URL(`http://127.0.0.1:${address.port}`),
+		pollMs: 60000,
+		colorQueryMs: 10,
+		capabilities: { trueColor: false, platform: "darwin", windowsKeys: false },
+		preferences: {
+			current: local({ theme: "light" }),
+			subscribe: (listener) => {
+				notify = listener;
+				return () => {};
+			},
+		},
+	});
+	t.after(() => client.close());
+	type Seen = { kind: string; preferences?: TuiLocalPreferences; platform?: string; terminal?: TerminalState }[];
+	const seen = async () => (await client.snapshot()) as Seen;
+	assert.deepEqual(
+		(await seen()).slice(0, 3).map((item) => item.kind),
+		["capabilities", "preferences", "activate"],
+	);
+	assert.equal((await seen())[0]?.platform, "darwin");
+	await poll(async () => (await seen()).some((item) => item.kind === "terminalColors"));
+	notify?.(local({ theme: "dark" }));
+	await poll(async () => (await seen()).at(-1)?.preferences?.theme === "dark");
+	// Terminal replies to the launcher's query are consumed by the launcher, never forwarded.
+	terminal.sendInput("\x1b]11;rgb:0000/0000/0000\x07");
+	await poll(async () => {
+		const last = (await seen()).at(-1);
+		return last?.kind === "terminalColors" && last.terminal?.colors.background?.r === 0;
+	});
+	assert(!(await seen()).some((item) => item.kind === "input"));
+});

@@ -51,7 +51,7 @@ describe("artifacts (fake provider)", () => {
 				(value) => results(value).length === version && !(value?.docs["pi.live"] as { run?: unknown })?.run,
 			);
 			assert.equal(results(view).at(-1)?.isError, false);
-			assert.equal((results(view).at(-1)?.details as { version: number }).version, version);
+			assert.equal((results(view).at(-1)?.details as { version: number } | undefined)?.version, version);
 		}
 		const index = await until(list.artifacts, (value) => value?.length === 2);
 		assert.deepEqual(

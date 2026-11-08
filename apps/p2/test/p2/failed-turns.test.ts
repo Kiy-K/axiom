@@ -186,112 +186,109 @@ test("a model error shows from Durable's runFailure, live and after reopen, unti
 	}
 });
 
-test(
-	"browser shows length, compaction, and model-error notices while idle",
-	{ skip: !browserTests, timeout: 60_000 },
-	async () => {
-		const fixture = await startFixture({ web: true });
-		let browser: Browser | undefined;
-		try {
-			browser = await Browser.start();
-			await browser.metrics(390, 844);
-			await browser.open(`http://127.0.0.1:${fixture.server.port}`);
-			await browser.wait("document.querySelector('.app')");
-			await browser.loadFixture("failed-turns.ts");
-			await browser.wait("typeof window.showFailedTurn==='function'");
-			const show = async (view: ConversationView) => {
-				await browser?.evaluate(`window.showFailedTurn(${JSON.stringify(view)})`);
-				await browser?.wait("document.querySelector('.messages')");
-			};
-			const empty = viewOf("length");
-			await show(empty);
-			await browser.wait(
-				"document.querySelector('.notice')?.textContent.includes(\"The response hit the model's length limit\")",
-			);
-			await show(viewOf("length", [{ type: "text", text: "Partial answer" }]));
-			await browser.wait("document.querySelector('.messages')?.textContent.includes('Partial answer')");
-			assert.match(
-				await browser.evaluate<string>("document.querySelector('.notice').textContent"),
-				/The response hit the model's length limit/,
-			);
-			await show(viewOf("stop"));
-			await browser.wait("document.querySelector('.assistant') && !document.querySelector('.notice')");
-			const message = empty.entries[0]?.model?.[0];
-			assert(message?.role === "assistant");
-			await show({
-				...empty,
-				entries: [],
-				docs: {
-					"pi.live": {
-						run: { taskId: 1, inputs: [] },
-						generation: {
-							attempt: 1,
-							message: message as NonNullable<NonNullable<LiveState["generation"]>["message"]>,
-						},
+test("browser shows length, compaction, and model-error notices while idle", {
+	skip: !browserTests,
+	timeout: 60_000,
+}, async () => {
+	const fixture = await startFixture({ web: true });
+	let browser: Browser | undefined;
+	try {
+		browser = await Browser.start();
+		await browser.metrics(390, 844);
+		await browser.open(`http://127.0.0.1:${fixture.server.port}`);
+		await browser.wait("document.querySelector('.app')");
+		await browser.loadFixture("failed-turns.ts");
+		await browser.wait("typeof window.showFailedTurn==='function'");
+		const show = async (view: ConversationView) => {
+			await browser?.evaluate(`window.showFailedTurn(${JSON.stringify(view)})`);
+			await browser?.wait("document.querySelector('.messages')");
+		};
+		const empty = viewOf("length");
+		await show(empty);
+		await browser.wait(
+			"document.querySelector('.notice')?.textContent.includes(\"The response hit the model's length limit\")",
+		);
+		await show(viewOf("length", [{ type: "text", text: "Partial answer" }]));
+		await browser.wait("document.querySelector('.messages')?.textContent.includes('Partial answer')");
+		assert.match(
+			await browser.evaluate<string>("document.querySelector('.notice').textContent"),
+			/The response hit the model's length limit/,
+		);
+		await show(viewOf("stop"));
+		await browser.wait("document.querySelector('.assistant') && !document.querySelector('.notice')");
+		const message = empty.entries[0]?.model?.[0];
+		assert(message?.role === "assistant");
+		await show({
+			...empty,
+			entries: [],
+			docs: {
+				"pi.live": {
+					run: { taskId: 1, inputs: [] },
+					generation: {
+						attempt: 1,
+						message: message as NonNullable<NonNullable<LiveState["generation"]>["message"]>,
 					},
 				},
-			});
-			await browser.wait("document.querySelector('.working')");
-			assert.equal(await browser.evaluate("document.querySelector('.notice')!==null"), false);
-			await show(viewOf("error"));
-			await browser.wait(
-				"document.querySelector('.notice')?.textContent.includes('The provider returned an error.')",
-			);
-			await show(viewOf("aborted"));
-			await browser.wait("document.querySelector('.notice')?.textContent==='Stopped'");
-			const failure = {
-				...empty,
-				entries: [
-					{
-						id: 3 as EntryId,
-						conversationId: empty.conversation.id,
-						kind: "app.model-error",
-						data: { detail: "400 prompt is too long <script>unsafe</script>" },
-					},
-				],
-			};
-			await show(failure);
-			await browser.wait(
-				"document.querySelector('.notice.error')?.textContent.includes('The model could not answer this input. 400 prompt is too long')",
-			);
-			assert.equal(await browser.evaluate("document.querySelector('.messages script')!==null"), false);
-			assert.equal(await browser.evaluate("document.querySelector('.working')!==null"), false);
-			// Manual/background failures have no assistant or settlement entry, but must remain visible while idle.
-			const compaction = compactionView("manual", "bad request <script>unsafe</script>");
-			await show(compaction);
-			await browser.wait(
-				"document.querySelector('.notice.error')?.textContent==='Compaction failed: bad request <script>unsafe</script>'",
-			);
-			assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
-			assert.equal(await browser.evaluate("document.querySelector('.messages script')!==null"), false);
-			assert.equal(await browser.evaluate("document.querySelector('.working')!==null"), false);
-			assert.equal(
-				await browser.evaluate("document.querySelector('.notice.error').getBoundingClientRect().height>0"),
-				true,
-			);
-			await show({ ...compaction, docs: { ...compaction.docs, "pi.usage": {} } });
-			await browser.wait(
-				"document.querySelector('.notice.error')?.textContent==='Compaction failed: bad request <script>unsafe</script>'",
-			);
-			await show(runFailureView("interrupted", "socket closed"));
-			await browser.wait(
-				"document.querySelector('.notice.error')?.textContent==='The answer was interrupted: the server stopped while the model was answering.'",
-			);
-			assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
-			await show(runFailureView("aborted", "cut off"));
-			await browser.wait("document.querySelector('.messages') && !document.querySelector('.notice.error')");
-			const replacement = compactionView("overflow", "new failure");
-			await show(replacement);
-			await browser.wait("document.querySelector('.notice.error')?.textContent==='Compaction failed: new failure'");
-			assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
-			await show({ ...replacement, docs: { "pi.live": {} } });
-			await browser.wait("document.querySelector('.messages') && !document.querySelector('.notice.error')");
-		} finally {
-			await browser?.close();
-			await fixture.close();
-		}
-	},
-);
+			},
+		});
+		await browser.wait("document.querySelector('.working')");
+		assert.equal(await browser.evaluate("document.querySelector('.notice')!==null"), false);
+		await show(viewOf("error"));
+		await browser.wait("document.querySelector('.notice')?.textContent.includes('The provider returned an error.')");
+		await show(viewOf("aborted"));
+		await browser.wait("document.querySelector('.notice')?.textContent==='Stopped'");
+		const failure = {
+			...empty,
+			entries: [
+				{
+					id: 3 as EntryId,
+					conversationId: empty.conversation.id,
+					kind: "app.model-error",
+					data: { detail: "400 prompt is too long <script>unsafe</script>" },
+				},
+			],
+		};
+		await show(failure);
+		await browser.wait(
+			"document.querySelector('.notice.error')?.textContent.includes('The model could not answer this input. 400 prompt is too long')",
+		);
+		assert.equal(await browser.evaluate("document.querySelector('.messages script')!==null"), false);
+		assert.equal(await browser.evaluate("document.querySelector('.working')!==null"), false);
+		// Manual/background failures have no assistant or settlement entry, but must remain visible while idle.
+		const compaction = compactionView("manual", "bad request <script>unsafe</script>");
+		await show(compaction);
+		await browser.wait(
+			"document.querySelector('.notice.error')?.textContent==='Compaction failed: bad request <script>unsafe</script>'",
+		);
+		assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
+		assert.equal(await browser.evaluate("document.querySelector('.messages script')!==null"), false);
+		assert.equal(await browser.evaluate("document.querySelector('.working')!==null"), false);
+		assert.equal(
+			await browser.evaluate("document.querySelector('.notice.error').getBoundingClientRect().height>0"),
+			true,
+		);
+		await show({ ...compaction, docs: { ...compaction.docs, "pi.usage": {} } });
+		await browser.wait(
+			"document.querySelector('.notice.error')?.textContent==='Compaction failed: bad request <script>unsafe</script>'",
+		);
+		await show(runFailureView("interrupted", "socket closed"));
+		await browser.wait(
+			"document.querySelector('.notice.error')?.textContent==='The answer was interrupted: the server stopped while the model was answering.'",
+		);
+		assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
+		await show(runFailureView("aborted", "cut off"));
+		await browser.wait("document.querySelector('.messages') && !document.querySelector('.notice.error')");
+		const replacement = compactionView("overflow", "new failure");
+		await show(replacement);
+		await browser.wait("document.querySelector('.notice.error')?.textContent==='Compaction failed: new failure'");
+		assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
+		await show({ ...replacement, docs: { "pi.live": {} } });
+		await browser.wait("document.querySelector('.messages') && !document.querySelector('.notice.error')");
+	} finally {
+		await browser?.close();
+		await fixture.close();
+	}
+});
 
 test("p2 TUI shows the persistent compaction error once and removes it when Durable clears it", () => {
 	const base = compactionView();

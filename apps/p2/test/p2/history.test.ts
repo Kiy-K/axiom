@@ -182,61 +182,60 @@ test("what is kept: the newest entries without a gap, within the byte budget, an
 	assert.deepEqual(ids(keptWindow(items([1, 2, 3]), 1)), [2, [3]]);
 });
 
-test(
-	"a gap's row loads its entries once shown and on a tap, styled as the top edge",
-	{ skip: !browserTests, timeout: 60_000 },
-	async () => {
-		const fixture = await startFixture({ web: true });
-		let browser: Browser | undefined;
-		try {
-			browser = await Browser.start();
-			await browser.metrics(390, 844);
-			await browser.open(`http://127.0.0.1:${fixture.server.port}`);
-			await browser.wait("document.querySelector('.app')");
-			await browser.loadFixture("gap-row.ts");
-			await browser.wait("typeof window.showGap==='function'");
-			const answer = (id: number) => ({
-				kind: "entry",
-				entry: {
-					id,
-					conversationId: 1,
-					kind: "pi.assistant",
-					model: [
-						{
-							role: "assistant",
-							content: [{ type: "text", text: `answer ${id}` }],
-							stopReason: "stop",
-							timestamp: id,
-							usage: {
-								input: 0,
-								output: 0,
-								cacheRead: 0,
-								cacheWrite: 0,
-								totalTokens: 0,
-								cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-							},
+test("a gap's row loads its entries once shown and on a tap, styled as the top edge", {
+	skip: !browserTests,
+	timeout: 60_000,
+}, async () => {
+	const fixture = await startFixture({ web: true });
+	let browser: Browser | undefined;
+	try {
+		browser = await Browser.start();
+		await browser.metrics(390, 844);
+		await browser.open(`http://127.0.0.1:${fixture.server.port}`);
+		await browser.wait("document.querySelector('.app')");
+		await browser.loadFixture("gap-row.ts");
+		await browser.wait("typeof window.showGap==='function'");
+		const answer = (id: number) => ({
+			kind: "entry",
+			entry: {
+				id,
+				conversationId: 1,
+				kind: "pi.assistant",
+				model: [
+					{
+						role: "assistant",
+						content: [{ type: "text", text: `answer ${id}` }],
+						stopReason: "stop",
+						timestamp: id,
+						usage: {
+							input: 0,
+							output: 0,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 0,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 						},
-					],
-				},
-			});
-			const view = {
-				conversation: { id: 1 },
-				docs: {},
-				items: [answer(1), answer(2), { kind: "gap", after: 2, upTo: 9 }, answer(9)],
-			};
-			await browser.evaluate(`window.showGap(${JSON.stringify(view)}, false)`);
-			await browser.wait("document.querySelector('button.history-edge.earlier')?.textContent==='Load more'");
-			// Rendered, it asks once.
-			await browser.wait("window.filled.length===1");
-			assert.deepEqual(await browser.evaluate("window.filled"), ["2-9"]);
-			await browser.evaluate("document.querySelector('button.history-edge.earlier').click()");
-			assert.deepEqual(await browser.evaluate("window.filled"), ["2-9", "2-9"]);
-			// While it loads it is disabled and shows the spinner, as the top edge does.
-			await browser.evaluate(`window.showGap(${JSON.stringify(view)}, true)`);
-			await browser.wait("document.querySelector('button.history-edge.earlier.loading')?.disabled===true");
-		} finally {
-			await browser?.close();
-			await fixture.close();
-		}
-	},
-);
+					},
+				],
+			},
+		});
+		const view = {
+			conversation: { id: 1 },
+			docs: {},
+			items: [answer(1), answer(2), { kind: "gap", after: 2, upTo: 9 }, answer(9)],
+		};
+		await browser.evaluate(`window.showGap(${JSON.stringify(view)}, false)`);
+		await browser.wait("document.querySelector('button.history-edge.earlier')?.textContent==='Load more'");
+		// Rendered, it asks once.
+		await browser.wait("window.filled.length===1");
+		assert.deepEqual(await browser.evaluate("window.filled"), ["2-9"]);
+		await browser.evaluate("document.querySelector('button.history-edge.earlier').click()");
+		assert.deepEqual(await browser.evaluate("window.filled"), ["2-9", "2-9"]);
+		// While it loads it is disabled and shows the spinner, as the top edge does.
+		await browser.evaluate(`window.showGap(${JSON.stringify(view)}, true)`);
+		await browser.wait("document.querySelector('button.history-edge.earlier.loading')?.disabled===true");
+	} finally {
+		await browser?.close();
+		await fixture.close();
+	}
+});

@@ -268,7 +268,7 @@ describe("a subagent spawned with its own cwd (fake provider)", () => {
 			(value) => texts(value).includes('<sender kind="subagent" name="wt"/>'),
 			20_000,
 		);
-		assert.equal((result(view, "spawn")?.details as { cwd?: string }).cwd, join(project, "worktree"));
+		assert.equal((result(view, "spawn")?.details as { cwd?: string } | undefined)?.cwd, join(project, "worktree"));
 		const listed = await until(children.children, (value) => Boolean(value?.[session]?.length));
 		const agent = listed?.[session]?.[0];
 		assert(agent);
@@ -285,7 +285,7 @@ describe("a subagent spawned with its own cwd (fake provider)", () => {
 		await spawn({ action: "status" }, "status");
 		const status = await until(chat.view, (value) => Boolean(result(value, "status")));
 		assert.match(
-			(result(status, "status")?.content[0] as { text: string }).text,
+			(result(status, "status")!.content[0] as { text: string }).text,
 			new RegExp(`· in ${join(project, "worktree")}$`),
 		);
 
@@ -436,7 +436,7 @@ describe("subagents with code mode (fake provider)", () => {
 		assert.deepEqual(value.nested, { n: 2 });
 		assert.match(value.refused, /^Unknown tools: subagent\. Choose from your own tools: /);
 		// The script-only tools were enabled by name before the script started; the model is still offered its choice.
-		const tools = (sub.view.value?.docs["pi.agent"] as { tools: string[] }).tools;
+		const tools = (sub.view.value!.docs["pi.agent"] as { tools: string[] }).tools;
 		assert.ok(tools.includes("agent"), tools.join());
 		await reported("coder");
 		await until(children.children, (value) =>

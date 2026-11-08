@@ -54,7 +54,7 @@ const facet = defineFacet<P>((host) => {
 			slow: (ctx) =>
 				new Promise((resolve) =>
 					ctx.abortSignal?.addEventListener("abort", () => {
-						console.log("server: slow aborted:", (ctx.abortSignal?.reason as Error).message);
+						console.log("server: slow aborted:", (ctx.abortSignal?.reason as Error | undefined)?.message);
 						resolve(null);
 					}),
 				),

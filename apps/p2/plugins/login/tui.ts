@@ -415,7 +415,7 @@ async function login(ctx: TuiContext, name: string | undefined): Promise<void> {
 
 async function logout(ctx: TuiContext, name: string | undefined): Promise<void> {
 	const ref = await providerLogin(ctx);
-	if (!ref || ref.variant !== "owner") return;
+	if (ref?.variant !== "owner") return;
 	const list = (await providers(ref)).filter((entry) => entry.signedIn);
 	const run = (provider: Provider | undefined) => {
 		if (!provider) {

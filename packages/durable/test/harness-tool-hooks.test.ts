@@ -696,7 +696,9 @@ describe("calls to tools the request did not offer", () => {
 		await (await root.submit({ type: "input", content: "go" }, context)).wait(context);
 		expect(order).toEqual(["a", "hook c1", "hook c2", "b", "hook c3"]);
 		const resets = (await allEntries(root)).filter((entry) => ResetEntry.is(entry));
-		expect(resets.map((entry) => (entry.model?.[0] as { content: string }).content)).toEqual(["from c3"]);
+		expect(resets.map((entry) => (entry.model?.[0] as { content: string } | undefined)?.content)).toEqual([
+			"from c3",
+		]);
 		await harness.close(context);
 	});
 

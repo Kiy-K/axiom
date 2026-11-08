@@ -43,7 +43,7 @@ describe("copyJson", () => {
 		const copied = copyJson(input) as Record<string, unknown>;
 		expect(Object.getPrototypeOf(copied)).toBeNull();
 		expect(Object.hasOwn(copied, "__proto__")).toBe(true);
-		expect(copied.__proto__).toEqual({ safe: true });
+		expect(Object.getOwnPropertyDescriptor(copied, "__proto__")?.value).toEqual({ safe: true });
 	});
 
 	test("rejects cycles and non-strict container properties", () => {

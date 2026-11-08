@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { getModel, getModels, streamSimple } from "../src/compat.ts";
 import type { AssistantMessage, Context, Model } from "../src/types.ts";
 
+// Fireworks no longer lists Nemotron; this fixture preserves its verified budget-thinking compat.
+const nemotronModel: Model<"anthropic-messages"> = {
+	...getModel("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash"),
+	id: "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
+	compat: {
+		allowEmptySignature: true,
+		sendSessionAffinityHeaders: true,
+		supportsEagerToolInputStreaming: false,
+		supportsCacheControlOnTools: false,
+		supportsLongCacheRetention: false,
+	},
+};
+
 interface AnthropicPayload {
 	messages?: Array<{
 		role: string;
@@ -105,15 +118,9 @@ describe("Anthropic empty thinking signature compat", () => {
 	});
 
 	// Regression for #9323: Fireworks emits unsigned thinking that must survive replay.
-	it.each([
-		"accounts/fireworks/models/deepseek-v4p1-flash",
-		"accounts/fireworks/models/qwen3p8-max",
-		"accounts/fireworks/models/qwen3p8-2p4t-a95b",
-		"accounts/fireworks/models/nemotron-3-ultra-nvfp4",
-	] as const)("preserves unsigned thinking for Fireworks %s", async (modelId) => {
-		const model = getModel("fireworks", modelId);
+	const expectUnsignedThinkingPreserved = async (model: Model<"anthropic-messages">) => {
 		expect(model.compat?.allowEmptySignature).toBe(true);
-		const context = makeContext("", "internal reasoning", "fireworks", modelId);
+		const context = makeContext("", "internal reasoning", "fireworks", model.id);
 		const assistant = context.messages[1] as AssistantMessage;
 		assistant.content.push({ type: "text", text: "answer" });
 		const payload = await capturePayload(model, context);
@@ -121,5 +128,15 @@ describe("Anthropic empty thinking signature compat", () => {
 			{ type: "thinking", thinking: "internal reasoning", signature: "" },
 			{ type: "text", text: "answer" },
 		]);
+	};
+	it.each([
+		"accounts/fireworks/models/deepseek-v4p1-flash",
+		"accounts/fireworks/models/qwen3p8-max",
+		"accounts/fireworks/models/qwen3p8-2p4t-a95b",
+	] as const)("preserves unsigned thinking for Fireworks %s", async (modelId) => {
+		await expectUnsignedThinkingPreserved(getModel("fireworks", modelId));
+	});
+	it("preserves unsigned thinking for the Fireworks Nemotron fixture", async () => {
+		await expectUnsignedThinkingPreserved(nemotronModel);
 	});
 });

@@ -1312,7 +1312,8 @@ describe("delta tracker piece arrays", () => {
 		const change = tracker.beginChange();
 		for (let index = 0; index < 256; index++) change.state.rows[index]!.flag = 1;
 		for (let index = 0; index < 256; index++) {
-			change.state.rows[100]!.special!.__proto__.values[index] = -index - 1;
+			(Reflect.get(change.state.rows[100]!.special!, "__proto__") as { values: number[] }).values[index] =
+				-index - 1;
 		}
 		const prepared = change.prepare();
 		expect(prepared.ops).toHaveLength(1);
@@ -1588,9 +1589,9 @@ describe("delta tracker security and storage-style cloning", () => {
 		};
 		const tracker = track(initial);
 		const change = tracker.beginChange();
-		change.state.safe.__proto__.value = 2;
+		(Reflect.get(change.state.safe, "__proto__") as { value: number }).value = 2;
 		const prepared = change.prepare();
-		expect(prepared.value.safe.__proto__.value).toBe(2);
+		expect((Reflect.get(prepared.value.safe, "__proto__") as { value: number }).value).toBe(2);
 		expect(replay(tracker.value, prepared.ops)).toEqual(prepared.value);
 		tracker.adopt(prepared);
 		expect(({} as Record<string, unknown>).value).toBeUndefined();

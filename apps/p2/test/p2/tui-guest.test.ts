@@ -213,60 +213,56 @@ test("loopback stays the device owner: a stored guest cookie never downgrades it
 	assert.deepEqual(admission, { role: "owner" });
 });
 
-test(
-	"a guest joins by link with a name, sees its session as a guest, and the launcher ends on revocation",
-	{ skip: !supported, timeout: 60000 },
-	async (t) => {
-		const fixture = await startFixture({
-			allowedHosts: ["tui.test"],
-		});
-		t.after(() => fixture.close());
-		const owner = fixture.browser();
-		const session = await (await holdIn(owner, Sessions, {}, "owner")).create(
-			{ cwd: fixture.workspace },
-			BACKGROUND_CONTEXT,
-		);
-		const sharing = owner.hold(Sharing, { session: session.id }, BACKGROUND_CONTEXT);
-		await sharing.link({ mode: "view" }, BACKGROUND_CONTEXT);
-		const links = await until(sharing.links, (value) => Boolean(value?.length));
-		assert(links![0]!.url.startsWith("https://tui.test/join/"));
-		const url = await tunnel(t, fixture.server.port, "tui.test");
-		const config: TuiConfig = { connections: {} };
-		const joinLink = `${url.origin}${new URL(links![0]!.url).pathname}`;
-		const admission = await authenticateTui({ url, joinLink }, config, async () => "TUI guest");
-		assert.equal(admission.role, "guest");
-		assert.equal(admission.session, session.id);
-		assert.match(admission.cookie ?? "", /^p2_guest_\d+=/);
+test("a guest joins by link with a name, sees its session as a guest, and the launcher ends on revocation", {
+	skip: !supported,
+	timeout: 60000,
+}, async (t) => {
+	const fixture = await startFixture({
+		allowedHosts: ["tui.test"],
+	});
+	t.after(() => fixture.close());
+	const owner = fixture.browser();
+	const session = await (await holdIn(owner, Sessions, {}, "owner")).create(
+		{ cwd: fixture.workspace },
+		BACKGROUND_CONTEXT,
+	);
+	const sharing = owner.hold(Sharing, { session: session.id }, BACKGROUND_CONTEXT);
+	await sharing.link({ mode: "view" }, BACKGROUND_CONTEXT);
+	const links = await until(sharing.links, (value) => Boolean(value?.length));
+	assert(links![0]!.url.startsWith("https://tui.test/join/"));
+	const url = await tunnel(t, fixture.server.port, "tui.test");
+	const config: TuiConfig = { connections: {} };
+	const joinLink = `${url.origin}${new URL(links![0]!.url).pathname}`;
+	const admission = await authenticateTui({ url, joinLink }, config, async () => "TUI guest");
+	assert.equal(admission.role, "guest");
+	assert.equal(admission.session, session.id);
+	assert.match(admission.cookie ?? "", /^p2_guest_\d+=/);
 
-		const terminal = new VirtualTerminal(100, 30);
-		let ended = 0;
-		let exited = 0;
-		const client = await startTuiClient({
-			terminal,
-			url,
-			credentials: { cookie: admission.cookie },
-			pollMs: 100,
-			reconnectMs: 20,
-			colorQueryMs: 10,
-			onAccessEnded: () => ended++,
-			onExit: () => exited++,
-		});
-		t.after(() => client.close());
-		const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
-		await poll(
-			async () => (await screen()).includes("guest · TUI guest (unverified) · view only"),
-			20000,
-			"guest header",
-		);
-		await poll(async () => ((await client.snapshot()) as { session?: string }).session === session.id);
-		assert(
-			!JSON.stringify(await client.snapshot()).includes(admission.cookie!),
-			"the cookie never reaches the worker",
-		);
+	const terminal = new VirtualTerminal(100, 30);
+	let ended = 0;
+	let exited = 0;
+	const client = await startTuiClient({
+		terminal,
+		url,
+		credentials: { cookie: admission.cookie },
+		pollMs: 100,
+		reconnectMs: 20,
+		colorQueryMs: 10,
+		onAccessEnded: () => ended++,
+		onExit: () => exited++,
+	});
+	t.after(() => client.close());
+	const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
+	await poll(
+		async () => (await screen()).includes("guest · TUI guest (unverified) · view only"),
+		20000,
+		"guest header",
+	);
+	await poll(async () => ((await client.snapshot()) as { session?: string }).session === session.id);
+	assert(!JSON.stringify(await client.snapshot()).includes(admission.cookie!), "the cookie never reaches the worker");
 
-		// The owner resets the link: the guest's connection ends and the launcher confirms it itself.
-		await sharing.link({ mode: "view", reset: true }, BACKGROUND_CONTEXT);
-		await poll(() => ended === 1, 15000, "access ended");
-		assert.equal(exited, 1);
-	},
-);
+	// The owner resets the link: the guest's connection ends and the launcher confirms it itself.
+	await sharing.link({ mode: "view", reset: true }, BACKGROUND_CONTEXT);
+	await poll(() => ended === 1, 15000, "access ended");
+	assert.equal(exited, 1);
+});

@@ -979,7 +979,7 @@ Examples that call OpenAI need `OPENAI_API_KEY`; most use the faux provider othe
 
 - [`docs/spec.md`](https://github.com/earendil-works/pi/blob/main/packages/durable/docs/spec.md): the normative specification
 
-Benchmarks: `npm run bench:storage`, `npm run bench:storage:memory`, `npm run bench:tool-output`, and `npm run bench:nested-tools`.
+Benchmarks: `bun run bench:storage`, `bun run bench:storage:memory`, `bun run bench:tool-output`, and `bun run bench:nested-tools`.
 
 ## License
 

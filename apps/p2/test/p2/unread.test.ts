@@ -76,43 +76,39 @@ describe("unread answers", () => {
 		chat.release();
 	});
 
-	it(
-		"shows the working dot, then a steady unread dot, cleared by opening the session",
-		{
-			skip: !browserTests,
-		},
-		async () => {
-			const owner = fixture.browser();
-			const sessions = await holdIn(owner, Sessions, {}, "owner");
-			const marks = owner.hold(SessionReads, {}, BACKGROUND_CONTEXT);
-			const keep = [follow(marks.answers, () => {}), follow(marks.reads, () => {})];
-			const target = await sessions.create({ cwd: fixture.workspace, title: "Answers here" }, BACKGROUND_CONTEXT);
-			const elsewhere = await sessions.create({ cwd: fixture.workspace, title: "Looking here" }, BACKGROUND_CONTEXT);
-			const browser = await Browser.start();
-			try {
-				await browser.metrics(1280, 900);
-				await browser.open(`http://127.0.0.1:${fixture.server.port}/s/${elsewhere.id}`);
-				const row = `[...document.querySelectorAll('.session-row')].find(r=>r.querySelector('.session-title')?.textContent.includes('Answers here'))`;
-				await browser.wait(`Boolean(${row})`);
-				const chat = await holdIn(owner, Chat, { session: target.id, conversation: 1 }, "participant");
-				await chat.send({ text: "slow-tool", requestId: "slow" }, BACKGROUND_CONTEXT);
-				await browser.wait(`Boolean(${row}?.querySelector('.live-dot'))`);
-				await browser.wait(`Boolean(${row}?.querySelector('.unread-dot')) && !${row}?.querySelector('.live-dot')`);
-				assert.equal(
-					await browser.evaluate<string>(`getComputedStyle(${row}.querySelector('.unread-dot')).animationName`),
-					"none",
-					"the unread dot does not pulse",
-				);
-				assert.equal(marks.reads.value?.[target.id], undefined);
-				await browser.evaluate(`${row}.querySelector('.session-main').click()`);
-				await browser.wait(`!${row}?.querySelector('.unread-dot')`);
-				const answer = marks.answers.value?.[target.id];
-				await until(marks.reads, (reads) => reads?.[target.id] === answer);
-				chat.release();
-			} finally {
-				for (const stop of keep) stop();
-				await browser.close();
-			}
-		},
-	);
+	it("shows the working dot, then a steady unread dot, cleared by opening the session", {
+		skip: !browserTests,
+	}, async () => {
+		const owner = fixture.browser();
+		const sessions = await holdIn(owner, Sessions, {}, "owner");
+		const marks = owner.hold(SessionReads, {}, BACKGROUND_CONTEXT);
+		const keep = [follow(marks.answers, () => {}), follow(marks.reads, () => {})];
+		const target = await sessions.create({ cwd: fixture.workspace, title: "Answers here" }, BACKGROUND_CONTEXT);
+		const elsewhere = await sessions.create({ cwd: fixture.workspace, title: "Looking here" }, BACKGROUND_CONTEXT);
+		const browser = await Browser.start();
+		try {
+			await browser.metrics(1280, 900);
+			await browser.open(`http://127.0.0.1:${fixture.server.port}/s/${elsewhere.id}`);
+			const row = `[...document.querySelectorAll('.session-row')].find(r=>r.querySelector('.session-title')?.textContent.includes('Answers here'))`;
+			await browser.wait(`Boolean(${row})`);
+			const chat = await holdIn(owner, Chat, { session: target.id, conversation: 1 }, "participant");
+			await chat.send({ text: "slow-tool", requestId: "slow" }, BACKGROUND_CONTEXT);
+			await browser.wait(`Boolean(${row}?.querySelector('.live-dot'))`);
+			await browser.wait(`Boolean(${row}?.querySelector('.unread-dot')) && !${row}?.querySelector('.live-dot')`);
+			assert.equal(
+				await browser.evaluate<string>(`getComputedStyle(${row}.querySelector('.unread-dot')).animationName`),
+				"none",
+				"the unread dot does not pulse",
+			);
+			assert.equal(marks.reads.value?.[target.id], undefined);
+			await browser.evaluate(`${row}.querySelector('.session-main').click()`);
+			await browser.wait(`!${row}?.querySelector('.unread-dot')`);
+			const answer = marks.answers.value?.[target.id];
+			await until(marks.reads, (reads) => reads?.[target.id] === answer);
+			chat.release();
+		} finally {
+			for (const stop of keep) stop();
+			await browser.close();
+		}
+	});
 });

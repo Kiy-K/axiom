@@ -933,10 +933,10 @@ node test/chat-simple.ts
 
 ```bash
 # Install dependencies (from monorepo root)
-npm install
+bun install
 
 # Run type checking
-npm run check
+bun run check
 
 # Run the demo
 node test/chat-simple.ts

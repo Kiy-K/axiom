@@ -173,84 +173,80 @@ test("enabledModels: patterns resolve to the scope; the owner saves them to sett
 	assert(!("enabledModels" in JSON.parse(readFileSync(join(fixture.dataDir, "settings.json"), "utf8"))));
 });
 
-test(
-	"FileIndex ranks files and directories in the session directory, follows changes, refuses viewers",
-	{
-		timeout: 60_000,
-	},
-	async (t) => {
-		// Pure ranking: pi's name scores, directories first on ties, then depth, length and name; fuzzy matches last.
-		const items = withDirectories(["src/app.ts", "src/web/app.tsx", "docs/apple.md", "README.md", "src/main.ts"]);
-		assert.deepEqual(
-			items.filter((item) => item.dir).map((item) => item.path),
-			["src", "src/web", "docs"],
-		);
-		assert.deepEqual(
-			rankFiles(items, "app").map((item) => item.path),
-			["src/app.ts", "docs/apple.md", "src/web/app.tsx"],
-		);
-		assert.deepEqual(
-			rankFiles(items, "web").map((item) => item.path),
-			["src/web", "src/web/app.tsx"],
-		);
-		assert.deepEqual(
-			rankFiles(items, "mn", { kind: "file" }).map((item) => item.path),
-			["src/main.ts"],
-		);
-		assert.deepEqual(rankFiles(items, "", { kind: "dir", limit: 1 }), [{ path: "src", dir: true }]);
+test("FileIndex ranks files and directories in the session directory, follows changes, refuses viewers", {
+	timeout: 60_000,
+}, async (t) => {
+	// Pure ranking: pi's name scores, directories first on ties, then depth, length and name; fuzzy matches last.
+	const items = withDirectories(["src/app.ts", "src/web/app.tsx", "docs/apple.md", "README.md", "src/main.ts"]);
+	assert.deepEqual(
+		items.filter((item) => item.dir).map((item) => item.path),
+		["src", "src/web", "docs"],
+	);
+	assert.deepEqual(
+		rankFiles(items, "app").map((item) => item.path),
+		["src/app.ts", "docs/apple.md", "src/web/app.tsx"],
+	);
+	assert.deepEqual(
+		rankFiles(items, "web").map((item) => item.path),
+		["src/web", "src/web/app.tsx"],
+	);
+	assert.deepEqual(
+		rankFiles(items, "mn", { kind: "file" }).map((item) => item.path),
+		["src/main.ts"],
+	);
+	assert.deepEqual(rankFiles(items, "", { kind: "dir", limit: 1 }), [{ path: "src", dir: true }]);
 
-		const { fixture, owner, session } = await sessionFixture(t);
-		mkdirSync(join(fixture.workspace, "src/web"), { recursive: true });
-		writeFileSync(join(fixture.workspace, "src/app.ts"), "");
-		writeFileSync(join(fixture.workspace, "src/web/view.tsx"), "");
-		writeFileSync(join(fixture.workspace, ".env.example"), "");
-		const index = owner.hold(FileIndex, { session, conversation: 1 }, BACKGROUND_CONTEXT);
-		await whenLive(index);
-		t.after(follow(index.changes, () => {}));
-		assert.deepEqual(await index.complete({ query: "view" }, BACKGROUND_CONTEXT), {
-			items: [{ path: "src/web/view.tsx", dir: false }],
-			truncated: false,
-		});
-		assert.deepEqual(
-			(await index.complete({ query: "", kind: "dir" }, BACKGROUND_CONTEXT)).items.map((item) => item.path),
-			["src", "src/web"],
-		);
-		// Hidden files are included; out-of-scope prefixes complete nothing (cwd-relative only).
-		assert.deepEqual(
-			(await index.complete({ query: ".env" }, BACKGROUND_CONTEXT)).items.map((item) => item.path),
-			[".env.example"],
-		);
-		for (const query of ["/etc", "~/x", "../x", ".."])
-			assert.deepEqual((await index.complete({ query }, BACKGROUND_CONTEXT)).items, []);
-		assert.deepEqual(await index.list({ path: "src" }, BACKGROUND_CONTEXT), {
-			entries: [
-				{ name: "web", dir: true },
-				{ name: "app.ts", dir: false },
-			],
-			truncated: false,
-		});
-		await assert.rejects(index.list({ path: "../" }, BACKGROUND_CONTEXT), /Invalid path/);
-		// A new file advances `changes`; the next query sees it.
-		const before = index.changes.value ?? 0;
-		writeFileSync(join(fixture.workspace, "src/added.ts"), "");
-		await until(index.changes, (value) => (value ?? 0) > before);
-		await new Promise((resolve) => setTimeout(resolve, 1100));
-		assert.deepEqual(
-			(await index.complete({ query: "added" }, BACKGROUND_CONTEXT)).items.map((item) => item.path),
-			["src/added.ts"],
-		);
-		// View-only guests get no file names.
-		const viewer = (await guestOf(fixture, owner, session, "view", "Viewer")).hold(
-			FileIndex,
-			{
-				session,
-				conversation: 1,
-			},
-			BACKGROUND_CONTEXT,
-		);
-		await expectChord(whenLive(viewer), "forbidden");
-	},
-);
+	const { fixture, owner, session } = await sessionFixture(t);
+	mkdirSync(join(fixture.workspace, "src/web"), { recursive: true });
+	writeFileSync(join(fixture.workspace, "src/app.ts"), "");
+	writeFileSync(join(fixture.workspace, "src/web/view.tsx"), "");
+	writeFileSync(join(fixture.workspace, ".env.example"), "");
+	const index = owner.hold(FileIndex, { session, conversation: 1 }, BACKGROUND_CONTEXT);
+	await whenLive(index);
+	t.after(follow(index.changes, () => {}));
+	assert.deepEqual(await index.complete({ query: "view" }, BACKGROUND_CONTEXT), {
+		items: [{ path: "src/web/view.tsx", dir: false }],
+		truncated: false,
+	});
+	assert.deepEqual(
+		(await index.complete({ query: "", kind: "dir" }, BACKGROUND_CONTEXT)).items.map((item) => item.path),
+		["src", "src/web"],
+	);
+	// Hidden files are included; out-of-scope prefixes complete nothing (cwd-relative only).
+	assert.deepEqual(
+		(await index.complete({ query: ".env" }, BACKGROUND_CONTEXT)).items.map((item) => item.path),
+		[".env.example"],
+	);
+	for (const query of ["/etc", "~/x", "../x", ".."])
+		assert.deepEqual((await index.complete({ query }, BACKGROUND_CONTEXT)).items, []);
+	assert.deepEqual(await index.list({ path: "src" }, BACKGROUND_CONTEXT), {
+		entries: [
+			{ name: "web", dir: true },
+			{ name: "app.ts", dir: false },
+		],
+		truncated: false,
+	});
+	await assert.rejects(index.list({ path: "../" }, BACKGROUND_CONTEXT), /Invalid path/);
+	// A new file advances `changes`; the next query sees it.
+	const before = index.changes.value ?? 0;
+	writeFileSync(join(fixture.workspace, "src/added.ts"), "");
+	await until(index.changes, (value) => (value ?? 0) > before);
+	await new Promise((resolve) => setTimeout(resolve, 1100));
+	assert.deepEqual(
+		(await index.complete({ query: "added" }, BACKGROUND_CONTEXT)).items.map((item) => item.path),
+		["src/added.ts"],
+	);
+	// View-only guests get no file names.
+	const viewer = (await guestOf(fixture, owner, session, "view", "Viewer")).hold(
+		FileIndex,
+		{
+			session,
+			conversation: 1,
+		},
+		BACKGROUND_CONTEXT,
+	);
+	await expectChord(whenLive(viewer), "forbidden");
+});
 
 test("ownerName: the owner's next entries carry the configured name; earlier ones keep theirs", async (t) => {
 	const { fixture, owner, chat } = await sessionFixture(t);

@@ -235,6 +235,7 @@ export function FileCompletionPopover({ completion }: { completion: FileCompleti
 		<div className="file-completion" role="listbox" aria-label="File completion">
 			{popover.items.map((item, index) => (
 				<div
+					// biome-ignore lint/suspicious/noArrayIndexKey: items are re-listed per keystroke; the value plus index keeps duplicate values distinct.
 					key={`${item.value}-${index}`}
 					role="option"
 					tabIndex={-1}

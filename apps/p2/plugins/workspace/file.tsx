@@ -183,7 +183,7 @@ export function WorkspaceFile({
 		);
 	};
 	const save = () => {
-		if (!open || !open.text.trim() || !lines || !commentable) return;
+		if (!open?.text.trim() || !lines || !commentable) return;
 		if (open.id) onComments(comments.map((entry) => (entry.id === open.id ? { ...entry, text: open.text } : entry)));
 		else {
 			const row = lines[rowOf(open.line)];

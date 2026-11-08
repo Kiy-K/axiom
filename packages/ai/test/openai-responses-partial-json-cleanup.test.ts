@@ -88,7 +88,7 @@ describe("openai responses partialJson cleanup", () => {
 		expect(output.content).toHaveLength(1);
 		const persistedToolCall = output.content[0];
 		expect(persistedToolCall?.type).toBe("toolCall");
-		if (!persistedToolCall || persistedToolCall.type !== "toolCall") {
+		if (persistedToolCall?.type !== "toolCall") {
 			throw new Error("Expected toolCall block");
 		}
 		expect(persistedToolCall.arguments).toEqual({ path: "README.md", content: "updated" });
@@ -97,7 +97,7 @@ describe("openai responses partialJson cleanup", () => {
 		const emittedEvents = pushSpy.mock.calls.map(([event]) => event as AssistantMessageEvent);
 		const toolCallEnd = emittedEvents.find((event) => event.type === "toolcall_end");
 		expect(toolCallEnd).toBeDefined();
-		if (!toolCallEnd || toolCallEnd.type !== "toolcall_end") {
+		if (toolCallEnd?.type !== "toolcall_end") {
 			throw new Error("Expected toolcall_end event");
 		}
 		expect(toolCallEnd.toolCall).toBe(persistedToolCall);
@@ -125,7 +125,7 @@ describe("openai responses partialJson cleanup", () => {
 		await processResponsesStream(createFunctionCallEvents(argumentsJson), output, stream, model);
 
 		const toolCall = output.content[0];
-		if (!toolCall || toolCall.type !== "toolCall") throw new Error("Expected toolCall block");
+		if (toolCall?.type !== "toolCall") throw new Error("Expected toolCall block");
 		expect(toolCall.arguments).toEqual({});
 		expect(toolCall.argumentsError?.endsWith(`Received arguments:\n${argumentsJson}`)).toBe(true);
 	});

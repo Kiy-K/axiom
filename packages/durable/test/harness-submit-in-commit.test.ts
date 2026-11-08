@@ -570,7 +570,8 @@ describe("submit inside the caller's commit", () => {
 		await harness.waitForIdle(context);
 		const entries = [...(await other.entries({}, 100, undefined, context)).items].reverse();
 		const delegated = entries.find((entry) => entry.kind === "app.delegated");
-		const submission = (delegated?.data as { submission: SubmissionId }).submission;
+		const submission = (delegated?.data as { submission: SubmissionId } | undefined)?.submission;
+		if (submission === undefined) throw new Error("the delegated entry has no submission");
 		const settled = await settledStatus(harness, submission);
 		if (settled.type !== "input" || settled.status !== "done") throw new Error(`Unexpected ${settled.status}`);
 		// The placed input carries the tool task's byTaskId, as the commit's own appends do.

@@ -11,15 +11,15 @@ The server supports Node 22.19+. The launcher requires Node >=26.5.1; slayer has
 ```sh
 ~/.local/bin/node26 --import ./src/source.ts src/hosts/tui.ts
 ~/.local/bin/node26 --import ./src/source.ts src/hosts/tui.ts https://your-domain
-npm run check
+bun run check
 ~/.local/bin/node26 --import ./src/source.ts --test --test-concurrency=1 test/p2/tui*.test.ts
 ```
 
-To use `npm run tui`/`npm test` with this Node, put its binary directory first in PATH and supply its library path:
+To use `bun run tui`/`bun run test` with this Node, put its binary directory first in PATH and supply its library path:
 
 ```sh
-PATH="$HOME/node-v26.11.1-linux-x64/bin:$PATH" LD_LIBRARY_PATH="$HOME/node26-lib" npm run tui
-PATH="$HOME/node-v26.11.1-linux-x64/bin:$PATH" LD_LIBRARY_PATH="$HOME/node26-lib" npm test
+PATH="$HOME/node-v26.11.1-linux-x64/bin:$PATH" LD_LIBRARY_PATH="$HOME/node26-lib" bun run tui
+PATH="$HOME/node-v26.11.1-linux-x64/bin:$PATH" LD_LIBRARY_PATH="$HOME/node26-lib" bun run test
 ```
 
 The server builds one ESM bundle through esbuild and serves it only to web-admitted owners/share guests. Facets

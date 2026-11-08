@@ -248,17 +248,6 @@ function getAnthropicCompat(model: Model<"anthropic-messages">) {
 	};
 }
 
-/**
- * Message threads: the server keeps the conversation of a thread, so a request can continue
- * from the previous reply and send only the new messages. pi still builds the full request;
- * `prepareThreadRequest()` compares it with the previous request of the session and sends
- * only the new part when nothing earlier changed.
- */
-type ThreadParam = { type: "create" } | { type: "continue"; previous_message_id: string };
-
-/** The pinned SDK types do not include the `thread` request field yet. */
-type ThreadedParams = MessageCreateParamsStreaming & { thread?: ThreadParam };
-
 interface ThreadEntry {
 	/** Number of messages in the last full request as sent plus the converted reply. */
 	prefixCount: number;
@@ -347,9 +336,15 @@ function hashThreadPrefix(
 	return shortHash(settings + conversation);
 }
 
+/**
+ * Message threads: the server keeps the conversation of a thread, so a request can continue
+ * from the previous reply and send only the new messages. pi still builds the full request;
+ * `prepareThreadRequest()` compares it with the previous request of the session and sends
+ * only the new part when nothing earlier changed.
+ */
 interface PreparedThreadRequest {
 	sessionId: string;
-	body: ThreadedParams;
+	body: MessageCreateParamsStreaming;
 }
 
 function createThreadRequest(sessionId: string, params: MessageCreateParamsStreaming): PreparedThreadRequest {
@@ -399,7 +394,7 @@ function getThreadErrorCode(error: InstanceType<typeof Anthropic.APIError>): str
 async function sendThreadRequest(
 	thread: PreparedThreadRequest,
 	params: MessageCreateParamsStreaming,
-	send: (body: ThreadedParams) => Promise<Response>,
+	send: (body: MessageCreateParamsStreaming) => Promise<Response>,
 	output: AssistantMessage,
 	signal: AbortSignal | undefined,
 ): Promise<{ response: Response; thread: PreparedThreadRequest | undefined }> {
@@ -879,7 +874,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
 				maxRetries: 0,
 			};
-			const send = (body: ThreadedParams) =>
+			const send = (body: MessageCreateParamsStreaming) =>
 				retryProviderRequest(() => client.beta.messages.create(body, requestOptions).asResponse(), {
 					maxRetries: options?.maxRetries,
 					maxRetryDelayMs: options?.maxRetryDelayMs,
@@ -1474,7 +1469,7 @@ function buildParams(
 		nativeToolChanges,
 		messageThreads: flags.messageThreads,
 	});
-	const params: MessageCreateParamsStreaming = {
+	const params: MessageCreateParamsStreaming & { temperature?: number } = {
 		model: model.id,
 		messages: effortMessages ? insertThinkingLevelMessages(converted, activeEffort) : converted.messages,
 		max_tokens: options?.maxTokens ?? model.maxTokens,
@@ -1642,7 +1637,7 @@ function convertMessages(
 			// Later system messages only reach this point when the model accepts them natively;
 			// otherwise the transcript was collapsed into the leading message before conversion.
 			const text = renderSystemMessageUpdate(msg);
-			const blocks: ContentBlockParam[] = [];
+			const blocks: Exclude<Extract<MessageParam, { role: "system" }>["content"], string | undefined> = [];
 			if (text.length > 0) blocks.push({ type: "text", text: sanitizeSurrogates(text) });
 			if (convertToolDefinitions) {
 				const added = msg.toolsAdded ?? [];

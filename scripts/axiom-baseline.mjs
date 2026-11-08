@@ -41,7 +41,7 @@ const resolverPath = join(pkgDir, "src", "experimental", "source-resolver.ts");
 const sourceEntry = join(pkgDir, "src", "cli.ts");
 const bundleEntry = join(pkgDir, binEntries[binName] ?? "dist/bundle/cli.js");
 const entry = options.bundle ? bundleEntry : sourceEntry;
-if (!existsSync(entry)) fail(`CLI entry not found: ${entry} (run npm run hydrate:model-data; --bundle needs npm run build)`);
+if (!existsSync(entry)) fail(`CLI entry not found: ${entry} (run bun run hydrate:model-data; --bundle needs bun run build)`);
 if (!options.bundle && !existsSync(resolverPath)) fail(`source resolver not found: ${resolverPath}`);
 const hasTimeBin = existsSync(TIME_BIN);
 

@@ -215,7 +215,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 				this.scope = this.scope === "all" ? "scoped" : "all";
 				this.activeModels = this.scope === "scoped" ? this.scopedModels : this.allModels;
 				const index = this.activeModels.findIndex((model) => same(model, this.current));
-				this.selectedIndex = index >= 0 ? index : 0;
+				this.selectedIndex = Math.max(index, 0);
 				this.scopeText?.setText(this.getScopeText());
 				this.filterModels(this.searchInput.getValue());
 			}

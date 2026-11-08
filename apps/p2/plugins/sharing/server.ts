@@ -56,7 +56,7 @@ export function normalizeEmail(email: string): string | null {
 	if (parts.length !== 2 || !parts[0]?.trim() || !parts[1]) return null;
 	const local = parts[0].trim().toLowerCase();
 	const domain = domainToASCII(parts[1]).toLowerCase();
-	if (!domain || !domain.includes(".")) return null;
+	if (!domain?.includes(".")) return null;
 	return GMAIL_DOMAINS.has(domain) ? `${local.replaceAll(".", "")}@gmail.com` : `${local}@${domain}`;
 }
 

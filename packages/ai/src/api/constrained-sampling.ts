@@ -263,8 +263,8 @@ export function resolveJsonSchemaStrictSampling(
 	supportsStrictMode: boolean,
 	isUnsupportedKeyword?: UnsupportedStrictSchemaKeywordCheck,
 ): boolean | undefined {
-	const config = tool.constrainedSampling;
-	if (!config || config.type !== "json_schema") return undefined;
+	const config = tool.constrainedSampling || undefined;
+	if (config?.type !== "json_schema") return undefined;
 
 	if (supportsStrictMode) {
 		try {
@@ -288,8 +288,8 @@ export function resolveGrammarConstrainedSampling(
 	tool: Tool,
 	supportsOpenAIGrammarTools: boolean,
 ): GrammarConstrainedSampling | undefined {
-	const config = tool.constrainedSampling;
-	if (!config || config.type !== "grammar") {
+	const config = tool.constrainedSampling || undefined;
+	if (config?.type !== "grammar") {
 		return undefined;
 	}
 

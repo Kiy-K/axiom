@@ -63,27 +63,26 @@ test("terminal output admits only bounded complete allowed sequences", () => {
 	}
 });
 
-test(
-	"permissions drop precedes module evaluation; all machine escape attempts fail",
-	{ skip: !supported },
-	async (t) => {
-		const directory = mkdtempSync(join(tmpdir(), "p2-tui-escape-"));
-		t.after(() => rmSync(directory, { recursive: true, force: true }));
-		const secret = join(directory, "secret.json"),
-			output = join(directory, "written"),
-			executed = join(directory, "executed");
-		writeFileSync(secret, '{"secret":"fixture-only"}');
-		const server = createServer();
-		let connections = 0;
-		server.on("connection", (socket) => {
-			connections++;
-			socket.destroy();
-		});
-		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-		t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
-		const address = server.address();
-		assert(address && typeof address === "object");
-		const source = `
+test("permissions drop precedes module evaluation; all machine escape attempts fail", {
+	skip: !supported,
+}, async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "p2-tui-escape-"));
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+	const secret = join(directory, "secret.json"),
+		output = join(directory, "written"),
+		executed = join(directory, "executed");
+	writeFileSync(secret, '{"secret":"fixture-only"}');
+	const server = createServer();
+	let connections = 0;
+	server.on("connection", (socket) => {
+		connections++;
+		socket.destroy();
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+	const address = server.address();
+	assert(address && typeof address === "object");
+	const source = `
 	const permissions=["fs.read","fs.write","worker","net","child","addon","wasi","inspector"];
 	if(permissions.some(name=>process.permission.has(name))) throw new Error("bundle evaluated before drop");
 	const topLevelDropped=true;
@@ -121,105 +120,100 @@ test(
 	 return {blocked,topLevelDropped,env:Object.keys(process.env),portHidden:process.getBuiltinModule("worker_threads").parentPort===undefined};
 	 });
 	}`;
-		const worker = sandbox(source, { secret, output, executed, url: pathToFileURL(secret).href, port: address.port });
-		t.after(() => worker.terminate());
-		await worker.ready;
-		const result = (await worker.request(null)) as {
-			blocked: Record<string, boolean>;
-			topLevelDropped: boolean;
-			env: string[];
-			portHidden: boolean;
-		};
-		assert(result.topLevelDropped);
-		assert.deepEqual(result.env, []);
-		assert(result.portHidden);
-		for (const [name, blocked] of Object.entries(result.blocked)) assert(blocked, name);
-		assert.equal(readFileSync(secret, "utf8"), '{"secret":"fixture-only"}');
-		assert(!existsSync(output));
-		assert(!existsSync(executed));
-		assert.equal(connections, 0);
-	},
-);
+	const worker = sandbox(source, { secret, output, executed, url: pathToFileURL(secret).href, port: address.port });
+	t.after(() => worker.terminate());
+	await worker.ready;
+	const result = (await worker.request(null)) as {
+		blocked: Record<string, boolean>;
+		topLevelDropped: boolean;
+		env: string[];
+		portHidden: boolean;
+	};
+	assert(result.topLevelDropped);
+	assert.deepEqual(result.env, []);
+	assert(result.portHidden);
+	for (const [name, blocked] of Object.entries(result.blocked)) assert(blocked, name);
+	assert.equal(readFileSync(secret, "utf8"), '{"secret":"fixture-only"}');
+	assert(!existsSync(output));
+	assert(!existsSync(executed));
+	assert.equal(connections, 0);
+});
 
-test(
-	"sandbox close before readiness rejects startup and concurrent termination waits for exit",
-	{ skip: !supported },
-	async () => {
-		const worker = sandbox(`export default async ()=>new Promise(()=>{})`);
-		let exited = false;
-		worker.worker.once("exit", () => {
-			exited = true;
+test("sandbox close before readiness rejects startup and concurrent termination waits for exit", {
+	skip: !supported,
+}, async () => {
+	const worker = sandbox(`export default async ()=>new Promise(()=>{})`);
+	let exited = false;
+	worker.worker.once("exit", () => {
+		exited = true;
+	});
+	const first = worker.terminate();
+	const second = worker.terminate();
+	assert.equal(first, second);
+	await assert.rejects(worker.ready, /closed/);
+	await second;
+	assert(exited);
+});
+
+test("sandbox kills huge V8 allocations and watchdog kills external allocations", {
+	skip: !supported,
+	timeout: 20000,
+}, async () => {
+	for (const source of [
+		`export default ({onMessage})=>onMessage(()=>{const held=[];while(true)held.push(new Array(100000).fill('heap'));})`,
+		`export default ()=>{const held=[];setInterval(()=>{const b=new Uint8Array(16*1024*1024);b.fill(1);held.push(b)},30)}`,
+	]) {
+		let failure = "";
+		const worker = new TuiSandbox(source, {
+			onMessage: () => {},
+			onFailure: (message) => {
+				failure = message;
+			},
+			rssLimit: process.memoryUsage().rss + 96 * 1024 * 1024,
+			watchdogMs: 10,
 		});
-		const first = worker.terminate();
-		const second = worker.terminate();
-		assert.equal(first, second);
-		await assert.rejects(worker.ready, /closed/);
-		await second;
-		assert(exited);
-	},
-);
-
-test(
-	"sandbox kills huge V8 allocations and watchdog kills external allocations",
-	{ skip: !supported, timeout: 20000 },
-	async () => {
-		for (const source of [
-			`export default ({onMessage})=>onMessage(()=>{const held=[];while(true)held.push(new Array(100000).fill('heap'));})`,
-			`export default ()=>{const held=[];setInterval(()=>{const b=new Uint8Array(16*1024*1024);b.fill(1);held.push(b)},30)}`,
-		]) {
-			let failure = "";
-			const worker = new TuiSandbox(source, {
-				onMessage: () => {},
-				onFailure: (message) => {
-					failure = message;
-				},
-				rssLimit: process.memoryUsage().rss + 96 * 1024 * 1024,
-				watchdogMs: 10,
-			});
-			try {
-				await worker.ready;
-				worker.post(null);
-				const deadline = Date.now() + 15000;
-				while (!failure && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-				assert.match(failure, /memory|watchdog/);
-			} finally {
-				await worker.terminate();
-			}
+		try {
+			await worker.ready;
+			worker.post(null);
+			const deadline = Date.now() + 15000;
+			while (!failure && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+			assert.match(failure, /memory|watchdog/);
+		} finally {
+			await worker.terminate();
 		}
-	},
-);
+	}
+});
 
-test(
-	"a crash reports its sanitized stack: an uncaught exception and a throwing message handler",
-	{ skip: !supported, timeout: 10000 },
-	async () => {
-		for (const [source, expected] of [
-			[
-				`class Broken{render(){throw new TypeError("bad \\x1b]52;c;secret\\x07 render")}}export default()=>{setTimeout(()=>new Broken().render(),0)}`,
-				/^TUI sandbox crashed with an uncaught exception:\nTypeError: bad \]52;c;secret render\n\s+at Broken\.render \(p2-tui-bundle\.mjs:1:\d+\)/,
-			],
-			[
-				`export default({onMessage})=>onMessage(function handle(){throw new RangeError("no")})`,
-				/^TUI sandbox message handler threw:\nRangeError: no\n\s+at handle \(p2-tui-bundle\.mjs:1:\d+\)/,
-			],
-		] as const) {
-			let failure = "";
-			const worker = new TuiSandbox(source, {
-				onMessage: () => {},
-				onFailure: (message) => {
-					failure = message;
-				},
-			});
-			try {
-				await worker.ready;
-				worker.post(null);
-				const deadline = Date.now() + 5000;
-				while (!failure && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-				assert.match(failure, expected);
-				assert(!failure.includes("data:") && !failure.includes("\x1b"));
-			} finally {
-				await worker.terminate();
-			}
+test("a crash reports its sanitized stack: an uncaught exception and a throwing message handler", {
+	skip: !supported,
+	timeout: 10000,
+}, async () => {
+	for (const [source, expected] of [
+		[
+			`class Broken{render(){throw new TypeError("bad \\x1b]52;c;secret\\x07 render")}}export default()=>{setTimeout(()=>new Broken().render(),0)}`,
+			/^TUI sandbox crashed with an uncaught exception:\nTypeError: bad \]52;c;secret render\n\s+at Broken\.render \(p2-tui-bundle\.mjs:1:\d+\)/,
+		],
+		[
+			`export default({onMessage})=>onMessage(function handle(){throw new RangeError("no")})`,
+			/^TUI sandbox message handler threw:\nRangeError: no\n\s+at handle \(p2-tui-bundle\.mjs:1:\d+\)/,
+		],
+	] as const) {
+		let failure = "";
+		const worker = new TuiSandbox(source, {
+			onMessage: () => {},
+			onFailure: (message) => {
+				failure = message;
+			},
+		});
+		try {
+			await worker.ready;
+			worker.post(null);
+			const deadline = Date.now() + 5000;
+			while (!failure && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+			assert.match(failure, expected);
+			assert(!failure.includes("data:") && !failure.includes("\x1b"));
+		} finally {
+			await worker.terminate();
 		}
-	},
-);
+	}
+});

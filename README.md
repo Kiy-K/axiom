@@ -139,9 +139,9 @@ We treat npm dependency changes as reviewed code changes.
 
 - Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
 - `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the npm lock, and the source for the pi.dev install lock generator. CI installs from `bun.lock` (see `docs/axiom/toolchain.md`). Pre-commit blocks accidental `package-lock.json` and `bun.lock` changes unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
+- `bun.lock` is the lock for development, CI, and the pi.dev install lock generator. `package-lock.json` is the npm lock, refreshed by the release scripts (see `docs/axiom/toolchain.md`). Pre-commit blocks accidental `package-lock.json` and `bun.lock` changes unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
 - `bun run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
-- The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
+- The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from `bun.lock`, to pin transitive deps. The npm package does not pin transitive deps.
 - Local release smoke tests and npm publication use the same tarball packer; npm publishes the validated tarballs rather than repacking workspace directories.
 - Local release installs and documented npm installs use `--ignore-scripts` where supported. Axiom does not self-update (see `docs/axiom/rebrand.md` section 7).
 - CI installs with `bun install --frozen-lockfile --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.

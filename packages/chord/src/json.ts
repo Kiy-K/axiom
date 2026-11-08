@@ -3,17 +3,18 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 type IsAny<T> = 0 extends 1 & T ? true : false;
 
 /** Strict-JSON representation of an application data type. Unknown payloads become JsonValue. */
-export type JsonRepresentation<T> = IsAny<T> extends true
-	? JsonValue
-	: unknown extends T
+export type JsonRepresentation<T> =
+	IsAny<T> extends true
 		? JsonValue
-		: T extends null | boolean | number | string
-			? T
-			: T extends readonly (infer TItem)[]
-				? JsonRepresentation<TItem>[]
-				: T extends object
-					? { [TKey in keyof T]: JsonRepresentation<T[TKey]> }
-					: never;
+		: unknown extends T
+			? JsonValue
+			: T extends null | boolean | number | string
+				? T
+				: T extends readonly (infer TItem)[]
+					? JsonRepresentation<TItem>[]
+					: T extends object
+						? { [TKey in keyof T]: JsonRepresentation<T[TKey]> }
+						: never;
 
 const DATA_DESCRIPTOR: PropertyDescriptor = {
 	value: undefined,

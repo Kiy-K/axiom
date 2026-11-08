@@ -1,0 +1,5 @@
+[install]
+# Same policy as .npmrc (min-release-age=2): no version younger than 2 days is resolved.
+# Workspace packages are exempt, as in .npmrc (min-release-age-exclude).
+minimumReleaseAge = 172800
+minimumReleaseAgeExcludes = ["@earendil-works/*"]

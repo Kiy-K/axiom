@@ -121,12 +121,12 @@ describe("foreign browser requests", () => {
 		}
 	});
 
-	it(
-		"in Chromium, a page on another local port can neither read nor drive p2; its links open the app",
-		{ skip: !browserTests, timeout: 120_000 },
-		async () => {
-			const p2 = `http://127.0.0.1:${port}`;
-			const page = `<!doctype html><a id="open" href="${p2}/">Open p2</a><script>
+	it("in Chromium, a page on another local port can neither read nor drive p2; its links open the app", {
+		skip: !browserTests,
+		timeout: 120_000,
+	}, async () => {
+		const p2 = `http://127.0.0.1:${port}`;
+		const page = `<!doctype html><a id="open" href="${p2}/">Open p2</a><script>
 				window.results = (async () => {
 					const out = {};
 					const settle = (name, promise) => promise.then(() => (out[name] = "read"), () => (out[name] = "blocked"));
@@ -143,80 +143,79 @@ describe("foreign browser requests", () => {
 					return out;
 				})();
 			</script>`;
-			const foreign: Server = createServer((_request, response) => {
-				response.writeHead(200, { "Content-Type": "text/html" });
-				response.end(page);
-			});
-			foreign.listen(0, "127.0.0.1");
-			await new Promise((resolve) => foreign.once("listening", resolve));
-			const foreignOrigin = `http://127.0.0.1:${(foreign.address() as AddressInfo).port}`;
-			const owner = await Browser.start();
-			const fresh = await Browser.start();
-			const ownerUi = `document.querySelector('.composer textarea') && !document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`;
-			try {
-				// Every request the browser sends to p2: its URL, whether it carried the owner cookie, and p2's status.
-				const seen = new Map<string, { url: string; cookie?: boolean; status?: number }>();
-				owner.socket.on("message", (raw) => {
-					const message = JSON.parse(raw.toString()) as {
-						method?: string;
-						params?: {
-							requestId: string;
-							request?: { url: string };
-							headers?: Record<string, string>;
-							statusCode?: number;
-						};
+		const foreign: Server = createServer((_request, response) => {
+			response.writeHead(200, { "Content-Type": "text/html" });
+			response.end(page);
+		});
+		foreign.listen(0, "127.0.0.1");
+		await new Promise((resolve) => foreign.once("listening", resolve));
+		const foreignOrigin = `http://127.0.0.1:${(foreign.address() as AddressInfo).port}`;
+		const owner = await Browser.start();
+		const fresh = await Browser.start();
+		const ownerUi = `document.querySelector('.composer textarea') && !document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`;
+		try {
+			// Every request the browser sends to p2: its URL, whether it carried the owner cookie, and p2's status.
+			const seen = new Map<string, { url: string; cookie?: boolean; status?: number }>();
+			owner.socket.on("message", (raw) => {
+				const message = JSON.parse(raw.toString()) as {
+					method?: string;
+					params?: {
+						requestId: string;
+						request?: { url: string };
+						headers?: Record<string, string>;
+						statusCode?: number;
 					};
-					const params = message.params;
-					if (!params?.requestId) return;
-					const entry = seen.get(params.requestId) ?? { url: "" };
-					if (message.method === "Network.requestWillBeSent" && params.request) entry.url = params.request.url;
-					if (message.method === "Network.requestWillBeSentExtraInfo")
-						entry.cookie = Object.entries(params.headers ?? {}).some(
-							([name, value]) => name.toLowerCase() === "cookie" && value.includes(`p2_device_${port}=`),
-						);
-					if (message.method === "Network.responseReceivedExtraInfo") entry.status = params.statusCode;
-					seen.set(params.requestId, entry);
-				});
-				await owner.call("Network.enable");
-				await owner.open(`${p2}/`);
-				await owner.wait(ownerUi);
-				seen.clear();
-
-				await owner.open(`${foreignOrigin}/`);
-				const results = await owner.evaluate<Record<string, string>>("window.results");
-				assert.deepEqual(results, {
-					fetch: "blocked",
-					module: "blocked",
-					source: "blocked",
-					socket: "refused",
-				});
-				// The page's requests to p2: each carried the owner's cookie (SameSite does not separate ports), and p2
-				// authenticated none of them.
-				const paths = ["/owner/check", "/__p2_web", "/owner/logout-all", "/owner-token"];
-				for (const path of paths) {
-					const requests = [...seen.values()].filter((entry) => entry.url === `${p2}${path}`);
-					// (A module import sends no cookie cross-origin; the credentialed fetch of the same URL does.)
-					assert.ok(
-						requests.some((entry) => entry.cookie),
-						`${path} was requested with the owner cookie`,
+				};
+				const params = message.params;
+				if (!params?.requestId) return;
+				const entry = seen.get(params.requestId) ?? { url: "" };
+				if (message.method === "Network.requestWillBeSent" && params.request) entry.url = params.request.url;
+				if (message.method === "Network.requestWillBeSentExtraInfo")
+					entry.cookie = Object.entries(params.headers ?? {}).some(
+						([name, value]) => name.toLowerCase() === "cookie" && value.includes(`p2_device_${port}=`),
 					);
-					for (const entry of requests)
-						assert.ok(entry.status !== undefined && entry.status >= 400, `${path} answered ${entry.status}`);
-				}
+				if (message.method === "Network.responseReceivedExtraInfo") entry.status = params.statusCode;
+				seen.set(params.requestId, entry);
+			});
+			await owner.call("Network.enable");
+			await owner.open(`${p2}/`);
+			await owner.wait(ownerUi);
+			seen.clear();
 
-				// Its link opens the app for the owner, and for a browser without any p2 cookie (no sign-in page).
-				await owner.click("#open");
-				await owner.wait(`location.origin === ${JSON.stringify(p2)}`);
-				await owner.wait(ownerUi);
-				await fresh.open(`${foreignOrigin}/`);
-				await fresh.click("#open");
-				await fresh.wait(`location.origin === ${JSON.stringify(p2)}`);
-				await fresh.wait(ownerUi);
-			} finally {
-				await owner.close();
-				await fresh.close();
-				foreign.close();
+			await owner.open(`${foreignOrigin}/`);
+			const results = await owner.evaluate<Record<string, string>>("window.results");
+			assert.deepEqual(results, {
+				fetch: "blocked",
+				module: "blocked",
+				source: "blocked",
+				socket: "refused",
+			});
+			// The page's requests to p2: each carried the owner's cookie (SameSite does not separate ports), and p2
+			// authenticated none of them.
+			const paths = ["/owner/check", "/__p2_web", "/owner/logout-all", "/owner-token"];
+			for (const path of paths) {
+				const requests = [...seen.values()].filter((entry) => entry.url === `${p2}${path}`);
+				// (A module import sends no cookie cross-origin; the credentialed fetch of the same URL does.)
+				assert.ok(
+					requests.some((entry) => entry.cookie),
+					`${path} was requested with the owner cookie`,
+				);
+				for (const entry of requests)
+					assert.ok(entry.status !== undefined && entry.status >= 400, `${path} answered ${entry.status}`);
 			}
-		},
-	);
+
+			// Its link opens the app for the owner, and for a browser without any p2 cookie (no sign-in page).
+			await owner.click("#open");
+			await owner.wait(`location.origin === ${JSON.stringify(p2)}`);
+			await owner.wait(ownerUi);
+			await fresh.open(`${foreignOrigin}/`);
+			await fresh.click("#open");
+			await fresh.wait(`location.origin === ${JSON.stringify(p2)}`);
+			await fresh.wait(ownerUi);
+		} finally {
+			await owner.close();
+			await fresh.close();
+			foreign.close();
+		}
+	});
 });

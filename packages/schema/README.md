@@ -278,7 +278,7 @@ property whose name comes from a list costs a few nanoseconds.
 
 ### Reproduce
 
-`npm run bench` in `packages/schema` takes about 12 minutes. It runs every library through its fastest boolean path
+`bun run bench` in `packages/schema` takes about 12 minutes. It runs every library through its fastest boolean path
 (ata's `isValidObject()`) and keeps the object each returns. ata runs with `ATA_NO_NATIVE=1`: its optional native
 addon only serves its buffer APIs. The scripts are in `test/bench/`.
 
@@ -313,7 +313,7 @@ schemas that arrive later.
 
 ## Development
 
-`npm test` runs the official test suite (drafts 2020-12 and 7, including the optional and format tests, vendored in
+`bun run test` runs the official test suite (drafts 2020-12 and 7, including the optional and format tests, vendored in
 `test/fixtures/`) and the package's own tests.
 
 The format checks are adapted from TypeBox 1.3.27 (MIT); its license is in `THIRD_PARTY_NOTICES/`.

@@ -338,7 +338,11 @@ test("model selector configures the conversation; Ctrl+S saves the default; /mod
 	await poll(async () => (await screen()).includes("Model Name"));
 	send(CTRL_S);
 	await poll(() => (calls.setDefault?.length ?? 0) === 1);
-	assert.equal((calls.setDefault?.[0] as { modelId: string }).modelId, "faux-1", "the current model is preselected");
+	assert.equal(
+		(calls.setDefault?.[0] as { modelId: string } | undefined)?.modelId,
+		"faux-1",
+		"the current model is preselected",
+	);
 	typed(send, "/model faux/faux-1");
 	send(ENTER);
 	await poll(() => (calls.configure?.length ?? 0) >= 3);
@@ -443,7 +447,7 @@ test("session selector: scopes, threaded subagents, message hits, archive and re
 	typed(send, "Renamed");
 	send(ENTER);
 	await poll(() => (calls.rename?.length ?? 0) === 1);
-	assert.equal((calls.rename?.[0] as { title: string }).title, "Renamed");
+	assert.equal((calls.rename?.[0] as { title: string } | undefined)?.title, "Renamed");
 	await poll(async () => (await screen()).includes("Renamed"));
 	send(ALT_P);
 	await poll(() => (calls.pin?.length ?? 0) === 1);

@@ -330,7 +330,7 @@ describe("rollout", () => {
 			built,
 			context,
 		);
-		expect([order, stopped.stopped?.step, (stopped.stopped?.error as Error).message]).toEqual([
+		expect([order, stopped.stopped?.step, (stopped.stopped?.error as Error | undefined)?.message]).toEqual([
 			["server"],
 			"server",
 			"closed",

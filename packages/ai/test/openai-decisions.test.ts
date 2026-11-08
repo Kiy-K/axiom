@@ -229,7 +229,10 @@ describe("OpenAI Decisions", () => {
 
 		expect(result.stopReason).toBe("stop");
 		expect(Object.hasOwn(result.answers, "__proto__")).toBe(true);
-		expect(result.answers.__proto__).toEqual({ type: "bool", probability: 0.75 });
+		expect(Object.getOwnPropertyDescriptor(result.answers, "__proto__")?.value).toEqual({
+			type: "bool",
+			probability: 0.75,
+		});
 	});
 
 	it("does not retry gateway timeouts and explains them instead of returning the HTML page", async () => {

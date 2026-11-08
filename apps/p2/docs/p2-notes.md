@@ -6,11 +6,7 @@ how p2 uses it: **Chord v2** below.
 
 ## TODO
 
-- **TypeScript 5.9.3 pin:** p2 pins `typescript` 5.9.3 (nested in `apps/p2/node_modules`, a devDependency used only by
-  `npm run check`; nothing imports it at runtime) only because the repo's TypeScript 7 has no Android ARM64 build, so
-  `npm run check` could not type-check on Termux. Move p2 to the repo's
-  TypeScript (drop the pin and the nested copy) once a portable TS 7 exists or checks run off-device; same for
-  apps/mobile.
+- **TypeScript:** p2 uses the repo's TypeScript 7.0.2; the old 5.9.3 pin and its nested copy are gone. The pin existed because TypeScript 7 had no Android ARM64 build, so `bun run check` could not type-check on Termux. Whether TypeScript 7 runs on Termux now is not verified. The same question applies to apps/mobile.
 - **TUI plugins:** the TUI still loads its facets with p2's own bundle and a `host.load` in the sandbox, not through
   Chord's plugins component (C2: Chord's child-process sandbox for the launcher).
 - **Guest TUI isolation:** the owner superseded the earlier QuickJS/secure-eval-worker plan with a plain locked-down
@@ -22,7 +18,7 @@ how p2 uses it: **Chord v2** below.
 
 ```sh
 cd apps/p2
-P2_FAKE=1 npm start          # http://127.0.0.1:8788, data in ~/.pi/p2
+P2_FAKE=1 bun run start          # http://127.0.0.1:8788, data in ~/.pi/p2
 ```
 
 | Variable | Default | Meaning |
@@ -33,7 +29,7 @@ P2_FAKE=1 npm start          # http://127.0.0.1:8788, data in ~/.pi/p2
 | `P2_IDLE_MS` | `300000` | idle time before a session worker stops |
 | `P2_PROVIDER`, `P2_MODEL` | unset | default model for new sessions after settings.json's `defaultModel` (both or neither; Pi Mobile's `PI_MOBILE_PROVIDER`/`PI_MOBILE_MODEL` work too) |
 | `P2_RADIUS` | unset | `0`: disable the outbound Radius brain connection even when signed in |
-| `PI_RADIUS_GATEWAY` | production Radius | gateway selected by `npm run radius:login` |
+| `PI_RADIUS_GATEWAY` | production Radius | gateway selected by `bun run radius:login` |
 | `P2_TERMINAL_DAEMON` | unset | optional local pi-env daemon binary; otherwise use packages/env release/development builds |
 
 - **Web UI:** `buildWebBundle` (`src/hosts/bundles.ts`) bundles `src/hosts/web/main.tsx` with the selected plugins'
@@ -52,7 +48,7 @@ P2_FAKE=1 npm start          # http://127.0.0.1:8788, data in ~/.pi/p2
   Radius serves under `/pi/ui/`. The script patches the built script's Chord socket URL, version poll and `/__p2_web/`
   asset prefix, and fails when one is missing: changing those in `src/hosts/web/main.tsx` or `WEB_BUNDLE_PATH` means
   updating it.
-- `npm run dev` also watches plugins and supervises runtime restarts; see **Dev mode** below. Under `npm start`,
+- `bun run dev` also watches plugins and supervises runtime restarts; see **Dev mode** below. Under `bun run start`,
   code changes (web included) take effect only after a restart.
 - **Data report** (`scripts/data-report.ts`, read-only, beside a live server): per session its title, location,
   conversations with their entry counts and newest entry IDs, subagents, share modes, artifacts, uploads and
@@ -93,7 +89,7 @@ cd /home/badlogic/pi-private/apps/p2
 export PATH=/home/badlogic/node-v24.4.1-linux-x64/bin:$PATH
 # The proxy sets X-P2-Proxy-Secret: 1 on every request (never an owner grant).
 P2_ALLOWED_HOSTS=p2.mariozechner.at P2_PUBLIC_URL=https://p2.mariozechner.at \
-  P2_DATA_DIR="$HOME/.pi/p2" PORT=8788 npm run dev
+  P2_DATA_DIR="$HOME/.pi/p2" PORT=8788 bun run dev
 ```
 
 Do not launch this beside another server using the same data directory or port. Moving a standalone server into
@@ -125,18 +121,18 @@ Use a temporary `P2_DATA_DIR` and a different `PORT` for experiments.
   inspect Logs, then request another restart. The CLI waits for replacement readiness and reports startup failure.
 - **Supervisor controls:** `kill -USR2 "$P2_DEV_SUPERVISOR_PID"` is still an explicit graceful restart, with an
   owner notice. Stop the supervisor with SIGTERM/SIGINT. The running set is in memory and is lost if the supervisor
-  dies. Supervisor/package/dependency/environment changes require relaunching `npm run dev`; a supervisor already
+  dies. Supervisor/package/dependency/environment changes require relaunching `bun run dev`; a supervisor already
   running the older automatic-watch script must be relaunched once to adopt these explicit-only triggers.
-  `npm start` has no dev controls unless explicitly given `P2_DEV=1`; standalone dev mode cannot restart itself.
+  `bun run start` has no dev controls unless explicitly given `P2_DEV=1`; standalone dev mode cannot restart itself.
 
 ### Agents: apply edits explicitly
 
 Run from `apps/p2`, with `P2_DATA_DIR` matching the running server (default `~/.pi/p2`):
 
 ```sh
-npm run reload                       # all dirty plugins, including additions/removals
-npm run reload -- chat sessions       # exactly these plugins
-npm run reload -- --restart           # runtime code; wait for the replacement server
+bun run reload                       # all dirty plugins, including additions/removals
+bun run reload -- chat sessions       # exactly these plugins
+bun run reload -- --restart           # runtime code; wait for the replacement server
 ```
 
 The CLI uses `<data>/dev.sock`, mode 0600, protected by a separate process lock and kept alive by the supervisor
@@ -160,9 +156,9 @@ failure results.
 ## TUI
 
 ```sh
-npm run tui                         # device owner on http://127.0.0.1:$PORT, default 8788
-npm run tui -- https://pi.example    # prompts for an owner link unless its saved cookie is valid
-npm run owner-link -- https://pi.example   # on the server machine, print a private fragment link
+bun run tui                         # device owner on http://127.0.0.1:$PORT, default 8788
+bun run tui -- https://pi.example    # prompts for an owner link unless its saved cookie is valid
+bun run owner-link -- https://pi.example   # on the server machine, print a private fragment link
 # Paste that link at the TUI prompt, or supply --owner-link '<link>' / P2_TUI_OWNER_LINK.
 ```
 
@@ -286,7 +282,7 @@ with Node 26.11.1; Node 24 remains valid for the server but cannot execute the s
 
 ## Testing
 
-From `apps/p2`: `npm run check`; `npm test` runs the full suite (browser tests need `CHROMIUM_BIN`). For a focused
+From `apps/p2`: `bun run check`; `bun run test` runs the full suite (browser tests need `CHROMIUM_BIN`). For a focused
 file, use `node --import ./src/source.ts --test test/p2/<file>.test.ts`; the TUI files (`test/p2/tui*.test.ts`) need
 Node 26 (`~/.local/bin/node26`).
 
@@ -358,8 +354,8 @@ p2 runs on Chord v2 (`packages/chord`, `docs/design.md` there); the port's notes
   mirror `FileSummaries` (by session and space; the owner's `of`), for lists that must not start a worker: none uses it
   yet (the artifact picker and transcript cards are on an open session's worker); a session row's file counts or a
   drive of an idle session could. A data directory in the older layout (`server.sqlite`, `sessions/<id>.sqlite`,
-  `artifacts/`, `downloads/`) is refused at start: `npm run migrate-data` moves it (below).
-- **Migration** (`npm run migrate-data -- [--dry-run] [--data <dir>]`, `scripts/migrate-data.ts`): offline (refused
+  `artifacts/`, `downloads/`) is refused at start: `bun run migrate-data` moves it (below).
+- **Migration** (`bun run migrate-data -- [--dry-run] [--data <dir>]`, `scripts/migrate-data.ts`): offline (refused
   while a server holds the data directory's lock, which it takes). The server's store is copied to `server/store.sqlite`
   and verified (equal exports); each session is built in `sessions/.<id>.migrating/` from a copy of its old store:
   Durable's records replayed into `StoreStorage` in seq order (`scripts/migrate-durable.ts`: seqs renumbered in order,
@@ -430,8 +426,8 @@ p2 runs on Chord v2 (`packages/chord`, `docs/design.md` there); the port's notes
 ## Radius and port forwards
 
 ```sh
-npm run radius:login    # device-code sign-in, separate from model providers
-npm start
+bun run radius:login    # device-code sign-in, separate from model providers
+bun run start
 ```
 
 - **Radius** (`plugins/radius`): a server resource (of an object of lifetime "host") keeps an outbound brain WebSocket when `radius.json`
@@ -465,7 +461,7 @@ npm start
 
 ### TUI through Radius
 
-`npm run tui -- --radius [<server-id>]` reaches the server through Radius, without a tunnel or owner link. The
+`bun run tui -- --radius [<server-id>]` reaches the server through Radius, without a tunnel or owner link. The
 launcher signs in to Radius itself (device code, saved in `~/.pi/p2-tui/radius.json`, separate from any server's
 `radius.json`), picks the given server or the user's only online one (`GET /v1/servers`), and connects to
 `/v1/servers/<id>/connect` with its bearer token (`pi-server.client.v2`). Radius admits only the server's owner and
@@ -1064,7 +1060,7 @@ translated phone drawer and intercept chat taps.
   `terminal-commands.test.ts`, `terminal-plain.test.ts` and `terminal-keys.test.ts` the pure parts;
   `terminal-service.test.ts` closing a session (no host started; an outdated host's terminals closed as the panel does);
   `ghostty.test.ts` and `terminal-input.test.ts` cover the copied browser primitives. PTY tests skip when no daemon
-  build exists (`npm run build:daemon` in `packages/env` builds a debug one).
+  build exists (`bun run build:daemon` in `packages/env` builds a debug one).
 - **Search** (`plugins/search`): `SearchIndex` (server local, `search.sqlite`: root/subagent user/assistant text in FTS5 and
   one cursor per conversation; derived, dropped on a schema change). Each worker's `Indexer` (lifetime "host") runs a task that reads
   the server's cursor (`SearchFeed`, worker principals only, session from the principal), scans each root/subagent
@@ -1083,7 +1079,7 @@ translated phone drawer and intercept chat taps.
   observer (`WorkerModels`). `startServer({ resources: { createModels } })` injects a fixture provider (tests).
   Edit `settings.json` as a file; valid changes hot-reload and in-flight requests keep their configuration.
   Set the default model and thinking level with **Make default for new sessions** in the model picker; there is no Settings editor UI.
-- **Devices** (`plugins/devices`): `npm run owner-link [base-url]` calls the direct device-only loopback token path,
+- **Devices** (`plugins/devices`): `bun run owner-link [base-url]` calls the direct device-only loopback token path,
   then prints a private `/owner#<token>` link. Base defaults to `P2_PUBLIC_URL` or `http://127.0.0.1:$PORT`; invitation
   lifetime is ten minutes, single-use. The nonced sign-in page is also the stranger landing page; it immediately
   scrubs the fragment, POSTs it, then redirects to `/`. HTTP/proxy URLs never carry the token. Signed per-device
@@ -1274,7 +1270,7 @@ translated phone drawer and intercept chat taps.
   `tool_search` is installed by the worker's registry (`durableRegistry`: once, while code mode is off and any extension
   has a deferred tool the model may call; MCP's and the terminal tool share it). Tests: `mcp.test.ts` (manager and views on a bare host with `test/fixtures/mcp-server.mjs` and
   an HTTP fixture; projects, where sessions work, and an environment through the debug pi-env daemon, skipped without
-  it: `npm run build:daemon` in `packages/env`, or `PI_ENV_DAEMON`), `mcp-instances.test.ts` (the supervisor with a
+  it: `bun run build:daemon` in `packages/env`, or `PI_ENV_DAEMON`), `mcp-instances.test.ts` (the supervisor with a
   short backoff), `mcp-leases.test.ts`, `mcp-environments.test.ts`, `mcp-project.test.ts`,
   `mcp-windows-command.test.ts`, `mcp-tools.test.ts`, `mcp-worker.test.ts` (fake provider: a project file, `tool_search`,
   a call, a relocation).

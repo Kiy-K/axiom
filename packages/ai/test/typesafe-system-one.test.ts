@@ -319,8 +319,14 @@ describe("TypeSafe System One", () => {
 		expect(result.stopReason).toBe("stop");
 		expect(Object.keys(result.answers)).toEqual(["__proto__"]);
 		expect(Object.hasOwn(result.answers, "__proto__")).toBe(true);
-		expect(result.answers.__proto__).toEqual({ type: "bool", probability: 0.75 });
-		expect(serializedAnswers.__proto__).toEqual({ type: "bool", probability: 0.75 });
+		expect(Object.getOwnPropertyDescriptor(result.answers, "__proto__")?.value).toEqual({
+			type: "bool",
+			probability: 0.75,
+		});
+		expect(Object.getOwnPropertyDescriptor(serializedAnswers, "__proto__")?.value).toEqual({
+			type: "bool",
+			probability: 0.75,
+		});
 	});
 
 	it("reports request timeouts separately from caller cancellation", async () => {

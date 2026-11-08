@@ -121,7 +121,7 @@ test("new-window opens at the calling conversation's location, keyed by the call
 		["read", { target: "id-3", from: 0, wait: { until: "quiet", timeoutMs: 10_000 } }],
 	]);
 	assert.deepEqual(result.structuredOutput, { window: 3, running: true, output: "$ " });
-	assert.equal((result.output?.[0] as { text: string }).text, "window 3 · at the prompt\n$ ");
+	assert.equal((result.output?.[0] as { text: string } | undefined)?.text, "window 3 · at the prompt\n$ ");
 	const absolute = recorder();
 	await run(absolute.backend, "new-window", ["-c", "/tmp", "-w", "none"]);
 	assert.deepEqual(absolute.calls, [
@@ -201,7 +201,7 @@ test("results: the screen of full-screen programs, skipped output, timeouts, win
 		timedOut: true,
 	});
 	assert.equal(
-		(screen.output?.[0] as { text: string }).text,
+		(screen.output?.[0] as { text: string } | undefined)?.text,
 		"window 1 · running vim · full-screen program\nVIM\n(timed out: still running (foreground: vim))",
 	);
 	const skipped = (await run(backend, "read", ["-t", "1"])).structuredOutput as { output: string; skipped: number };
@@ -215,7 +215,7 @@ test("results: the screen of full-screen programs, skipped output, timeouts, win
 		],
 	});
 	assert.equal(
-		(listed.output?.[0] as { text: string }).text,
+		(listed.output?.[0] as { text: string } | undefined)?.text,
 		"1: dev · /work · opened by agent · running vim\n2: gpu:/srv · opened by user · exited with code 2",
 	);
 	assert.deepEqual(await run(backend, "kill-window", []), {
@@ -253,7 +253,7 @@ test("a caller in a sandbox sees and drives only the session's terminals in it",
 	] as const) {
 		const result = await call(command, [...args], 2);
 		assert.equal(result.isError, true, command);
-		assert.match((result.output?.[0] as { text: string }).text, /outside sandbox gpu/);
+		assert.match((result.output![0] as { text: string }).text, /outside sandbox gpu/);
 	}
 	assert(!calls.some(([name]) => ["send", "read", "capture", "close"].includes(name)), JSON.stringify(calls));
 	// A rerun after the conversation was moved into the sandbox: the window its first run remembered is refused too.

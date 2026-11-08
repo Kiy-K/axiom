@@ -827,7 +827,8 @@ export class VoiceEngine {
 			this.#bargeInDetector.isStreaming() ||
 			(Date.now() >= this.#ignoreMicUntil && this.#bargeInDetector.shouldStreamMicNormally(phase))
 		)
-			socket.send(pcm);
+			// Resampled PCM is allocated per call, never SharedArrayBuffer-backed; WebSocket.send takes ArrayBuffer views only.
+			socket.send(pcm as Int16Array<ArrayBuffer>);
 	}
 
 	/**

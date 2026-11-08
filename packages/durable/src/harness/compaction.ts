@@ -145,6 +145,10 @@ export const CompactionTask = defineTask<CompactionInput, CompactionCheckpoint, 
 			});
 			if (decision !== undefined && "decline" in decision) return complete(runtime, context);
 			if (decision !== undefined) return place(runtime, firstKept, decision.summary, context);
+			let tail = firstKept;
+			for (const entry of view.entries) {
+				if (entry.id > tail) tail = entry.id;
+			}
 			const request: SummaryRequest = {
 				attempt: 1,
 				model: ref,
@@ -154,7 +158,7 @@ export const CompactionTask = defineTask<CompactionInput, CompactionCheckpoint, 
 					Math.floor(0.8 * policy.reserveTokens),
 					model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
 				),
-				tail: view.entries.reduce((tail, entry) => (entry.id > tail ? entry.id : tail), firstKept),
+				tail,
 				firstKept,
 			};
 			await runtime.commit(() => ({ status: "running", checkpoint: { phase: "summarize", ...request } }), context);

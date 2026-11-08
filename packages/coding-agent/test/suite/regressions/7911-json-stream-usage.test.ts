@@ -20,7 +20,7 @@ describe("regression #7911: JSON message updates retain usage", () => {
 		const update = harness
 			.eventsOfType("message_update")
 			.find((event) => event.message.role === "assistant" && event.message.usage.totalTokens > 0);
-		if (!update || update.message.role !== "assistant") {
+		if (update?.message.role !== "assistant") {
 			throw new Error("Expected an assistant update with populated usage");
 		}
 

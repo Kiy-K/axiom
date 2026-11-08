@@ -10,6 +10,19 @@ import type { Context, Model, Tool } from "../src/types.ts";
 
 const originalFireworksApiKey = process.env.FIREWORKS_API_KEY;
 
+// Fireworks no longer lists Nemotron; this fixture preserves its verified budget-thinking compat.
+const nemotronModel: Model<"anthropic-messages"> = {
+	...getModel("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash"),
+	id: "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
+	compat: {
+		allowEmptySignature: true,
+		sendSessionAffinityHeaders: true,
+		supportsEagerToolInputStreaming: false,
+		supportsCacheControlOnTools: false,
+		supportsLongCacheRetention: false,
+	},
+};
+
 afterEach(() => {
 	if (originalFireworksApiKey === undefined) {
 		delete process.env.FIREWORKS_API_KEY;
@@ -160,7 +173,7 @@ describe("Fireworks models", () => {
 	});
 
 	it("keeps toggle-only Messages models without a verified fallback on budget-based thinking", async () => {
-		const model = getModel("fireworks", "accounts/fireworks/models/nemotron-3-ultra-nvfp4");
+		const model = nemotronModel;
 		expect(model.compat?.forceAdaptiveThinking).toBeUndefined();
 		let payload: Record<string, unknown> | undefined;
 		await streamSimple(
@@ -187,7 +200,7 @@ describe("Fireworks models", () => {
 	});
 
 	it("sets Fireworks-specific compat for session affinity and unsupported tool fields", () => {
-		const model = getModel("fireworks", "accounts/fireworks/models/nemotron-3-ultra-nvfp4");
+		const model = getModel("fireworks", "accounts/fireworks/models/deepseek-v4p1-flash");
 
 		expect(model.compat).toBeDefined();
 		expect(model.compat?.sendSessionAffinityHeaders).toBe(true);

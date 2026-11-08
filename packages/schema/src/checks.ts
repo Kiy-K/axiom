@@ -477,7 +477,7 @@ export function listCheck(
 		if (!Array.isArray(v)) return guard === GUARD_LOOSE;
 		const length = v.length;
 		if (length < min || length > max) return false;
-		const m = length < n ? length : n;
+		const m = Math.min(length, n);
 		for (let i = 0; i < m; i++) if (!prefix[i](v[i])) return false;
 		if (rest === undefined) return true;
 		if (code !== 0) {

@@ -1107,7 +1107,10 @@ async function finishToolRound(
 		const live = await tx.doc(LiveDoc, conversationId);
 		const now = runtime.now();
 		// The run's last entry so far: the newest result, or the assistant when no result has an entry.
-		let last = results.reduce((newest, id) => (id > newest ? id : newest), assistant);
+		let last = assistant;
+		for (const id of results) {
+			if (id > last) last = id;
+		}
 		if (handoff !== undefined) {
 			// The handoff's reset precedes every queued item, so queued writes and selected steers land in its context.
 			const message = { role: "user", content: handoff, timestamp: now } as const;

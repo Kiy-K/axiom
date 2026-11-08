@@ -20,6 +20,8 @@
 ### Changed
 
 - Changed `bash` output for commands that became background jobs: the result is text with the job id, the latest output and a cursor. Its structured content is absent, so scripts never receive it; foreground results are unchanged.
+- Upgraded dependencies to their latest versions, including `diff` 9, `hosted-git-info` 10, and `highlight.js` 11. Syntax highlighting imports highlight.js language modules without the `.js` suffix, which v11 deprecates.
+- The pi.dev installer's pinned dependency tree is now generated from `bun.lock` instead of the npm `package-lock.json`. The installer tree now follows Bun's resolution: 122 packages instead of 123, 24 changed versions at the top level and nested, for example `ws` 8.22.1 and `agent-base` 9.0.0 at the top level, and `gaxios` keeps its own `https-proxy-agent` 7.0.6. Development no longer needs npm to refresh the install lock.
 
 - Default `editMode` is now `"hashline"` (was `"replace"`). Use `editMode: "replace"` to keep exact-text edits. On the P2 holdout v2 gate, hashline used a median of 9,838 tokens per run against 8,413 for replace (about 19% more); that gate covered six JavaScript tasks on one model.
 - The default model for the `anthropic` provider is now Claude Opus 5.5 (`claude-opus-5-5`) instead of Claude Opus 4.8

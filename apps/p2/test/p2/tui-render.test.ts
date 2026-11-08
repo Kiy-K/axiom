@@ -671,65 +671,64 @@ test("footer provenance: owner sees context against the model window, guests get
 	assert(modelsRequested > 0);
 });
 
-test(
-	"the copied components and tool renderers run inside the permission-dropped worker",
-	{ skip: Number(process.versions.node.split(".")[0]) < 26, timeout: 90000 },
-	async (t) => {
-		const fixture = await startFixture();
-		t.after(() => fixture.close());
-		const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
-		const browser = fixture.browser();
-		const token = (await browser.hold(Devices, {}, BACKGROUND_CONTEXT).token(BACKGROUND_CONTEXT)).token;
-		const sessions = await holdIn(browser, Sessions, {}, "owner");
-		if (sessions.variant !== "owner") return;
-		await sessions.create({ cwd: fixture.workspace, env: null }, BACKGROUND_CONTEXT);
-		const terminal = new VirtualTerminal(100, 40);
-		const failures: string[] = [];
-		const client = await startTuiClient({
-			terminal,
-			url,
-			credentials: await claimOwner(url, token, {}),
-			pollMs: 1000,
-			onFailure: (message) => failures.push(message),
-		});
-		t.after(() => client.close());
-		const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
-		await poll(async () => (await screen()).includes("New session"), 20000, "session list");
-		terminal.sendInput("\x1b[B");
-		terminal.sendInput("\r");
-		await poll(async () => (await screen()).includes("(faux) faux-1"), 10000, "chat screen");
-		// The editor appears once the conversation handle is live.
-		await poll(
-			async () => {
-				const drafts = ((await client.snapshot()) as { drafts: [string, string][] }).drafts;
-				if (drafts.some(([, text]) => text === "codemode")) return true;
-				terminal.sendInput("\x15");
-				for (const char of "codemode") terminal.sendInput(char);
-				return false;
-			},
-			10000,
-			"editor",
-		);
-		terminal.sendInput("\r");
-		// quiet-tools draws the call as one line; Ctrl+O expands it into the full card.
-		await poll(async () => /› codemode 2 calls: bash, read ✓/.test(await screen()), 30000, "quiet code mode line");
-		terminal.sendInput("\x0f");
-		// pi's code mode card: the script, its nested bash/read calls and the output.
-		// Live rows can settle before the result commits; the output comes with the result.
-		await poll(async () => /✓ bash[\s\S]*✓ read[\s\S]*bash: written/.test(await screen()), 30000, "code mode card");
-		const shown = await screen();
-		assert.match(shown, /codemode\s*\n\s*const written = await tools\.bash/);
-		assert.match(shown, /bash: written/);
-		assert.doesNotMatch(shown, /Unavailable in the TUI sandbox|ERR_ACCESS_DENIED|Error:/);
-		// Mermaid (grok-mermaid) renders in the sandbox too: a message with a diagram, Shift+Enter between lines.
-		const lines = ["```mermaid", "graph TD", "Alpha-->Beta", "```"];
-		lines.forEach((line, index) => {
-			for (const char of line) terminal.sendInput(char);
-			if (index < lines.length - 1) terminal.sendInput("\x1b[13;2u");
-		});
-		terminal.sendInput("\r");
-		await poll(async () => /│ Alpha │[\s\S]*│ Beta │/.test(await screen()), 30000, "mermaid diagram");
-		assert.doesNotMatch(await screen(), /ERR_ACCESS_DENIED|Error:/);
-		assert.deepEqual(failures, []);
-	},
-);
+test("the copied components and tool renderers run inside the permission-dropped worker", {
+	skip: Number(process.versions.node.split(".")[0]) < 26,
+	timeout: 90000,
+}, async (t) => {
+	const fixture = await startFixture();
+	t.after(() => fixture.close());
+	const url = new URL(`http://127.0.0.1:${fixture.server.port}`);
+	const browser = fixture.browser();
+	const token = (await browser.hold(Devices, {}, BACKGROUND_CONTEXT).token(BACKGROUND_CONTEXT)).token;
+	const sessions = await holdIn(browser, Sessions, {}, "owner");
+	if (sessions.variant !== "owner") return;
+	await sessions.create({ cwd: fixture.workspace, env: null }, BACKGROUND_CONTEXT);
+	const terminal = new VirtualTerminal(100, 40);
+	const failures: string[] = [];
+	const client = await startTuiClient({
+		terminal,
+		url,
+		credentials: await claimOwner(url, token, {}),
+		pollMs: 1000,
+		onFailure: (message) => failures.push(message),
+	});
+	t.after(() => client.close());
+	const screen = async () => (await terminal.flushAndGetViewport()).join("\n");
+	await poll(async () => (await screen()).includes("New session"), 20000, "session list");
+	terminal.sendInput("\x1b[B");
+	terminal.sendInput("\r");
+	await poll(async () => (await screen()).includes("(faux) faux-1"), 10000, "chat screen");
+	// The editor appears once the conversation handle is live.
+	await poll(
+		async () => {
+			const drafts = ((await client.snapshot()) as { drafts: [string, string][] }).drafts;
+			if (drafts.some(([, text]) => text === "codemode")) return true;
+			terminal.sendInput("\x15");
+			for (const char of "codemode") terminal.sendInput(char);
+			return false;
+		},
+		10000,
+		"editor",
+	);
+	terminal.sendInput("\r");
+	// quiet-tools draws the call as one line; Ctrl+O expands it into the full card.
+	await poll(async () => /› codemode 2 calls: bash, read ✓/.test(await screen()), 30000, "quiet code mode line");
+	terminal.sendInput("\x0f");
+	// pi's code mode card: the script, its nested bash/read calls and the output.
+	// Live rows can settle before the result commits; the output comes with the result.
+	await poll(async () => /✓ bash[\s\S]*✓ read[\s\S]*bash: written/.test(await screen()), 30000, "code mode card");
+	const shown = await screen();
+	assert.match(shown, /codemode\s*\n\s*const written = await tools\.bash/);
+	assert.match(shown, /bash: written/);
+	assert.doesNotMatch(shown, /Unavailable in the TUI sandbox|ERR_ACCESS_DENIED|Error:/);
+	// Mermaid (grok-mermaid) renders in the sandbox too: a message with a diagram, Shift+Enter between lines.
+	const lines = ["```mermaid", "graph TD", "Alpha-->Beta", "```"];
+	lines.forEach((line, index) => {
+		for (const char of line) terminal.sendInput(char);
+		if (index < lines.length - 1) terminal.sendInput("\x1b[13;2u");
+	});
+	terminal.sendInput("\r");
+	await poll(async () => /│ Alpha │[\s\S]*│ Beta │/.test(await screen()), 30000, "mermaid diagram");
+	assert.doesNotMatch(await screen(), /ERR_ACCESS_DENIED|Error:/);
+	assert.deepEqual(failures, []);
+});

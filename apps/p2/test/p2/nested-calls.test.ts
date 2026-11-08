@@ -112,42 +112,41 @@ test("a call interrupted by a restart is interrupted, live and settled; other er
 	);
 });
 
-test(
-	"browser: a list opened with Show all while the script runs collapses to its summary once it settles",
-	{ skip: !browserTests, timeout: 60_000 },
-	async () => {
-		const fixture = await startFixture({ web: true });
-		let browser: Browser | undefined;
-		try {
-			browser = await Browser.start();
-			await browser.metrics(390, 844);
-			await browser.open(`http://127.0.0.1:${fixture.server.port}`);
-			await browser.wait("document.querySelector('.app')");
-			await browser.loadFixture("codemode-card.ts");
-			await browser.wait("typeof window.showCodemode==='function'");
-			const show = (view: ConversationView) => browser!.evaluate(`window.showCodemode(${JSON.stringify(view)})`);
-			await show(running(9));
-			await browser.wait("document.querySelectorAll('.nested-call').length===8");
-			await browser.click(".nested .tool-link");
-			await browser.wait("document.querySelectorAll('.nested-call').length===10");
-			assert.equal(await browser.evaluate("document.querySelectorAll('.nested-call.interrupted').length"), 1);
-			assert.equal(
-				await browser.evaluate("document.querySelector('.nested-call.interrupted .nested-name').textContent"),
-				"bash",
-			);
-			// The same card settles: the opened list collapses to the count; it opens again on request.
-			await show(settled());
-			await browser.wait("document.querySelector('.nested .tool-link')?.textContent==='3 tool calls · 2 failed'");
-			assert.equal(await browser.evaluate("document.querySelectorAll('.nested-call').length"), 0);
-			await browser.click(".nested .tool-link");
-			await browser.wait("document.querySelectorAll('.nested-call').length===3");
-			assert.equal(
-				await browser.evaluate("[...document.querySelectorAll('.nested-call')].map((row)=>row.className).join()"),
-				"nested-call done,nested-call interrupted,nested-call error",
-			);
-		} finally {
-			await browser?.close();
-			await fixture.close();
-		}
-	},
-);
+test("browser: a list opened with Show all while the script runs collapses to its summary once it settles", {
+	skip: !browserTests,
+	timeout: 60_000,
+}, async () => {
+	const fixture = await startFixture({ web: true });
+	let browser: Browser | undefined;
+	try {
+		browser = await Browser.start();
+		await browser.metrics(390, 844);
+		await browser.open(`http://127.0.0.1:${fixture.server.port}`);
+		await browser.wait("document.querySelector('.app')");
+		await browser.loadFixture("codemode-card.ts");
+		await browser.wait("typeof window.showCodemode==='function'");
+		const show = (view: ConversationView) => browser!.evaluate(`window.showCodemode(${JSON.stringify(view)})`);
+		await show(running(9));
+		await browser.wait("document.querySelectorAll('.nested-call').length===8");
+		await browser.click(".nested .tool-link");
+		await browser.wait("document.querySelectorAll('.nested-call').length===10");
+		assert.equal(await browser.evaluate("document.querySelectorAll('.nested-call.interrupted').length"), 1);
+		assert.equal(
+			await browser.evaluate("document.querySelector('.nested-call.interrupted .nested-name').textContent"),
+			"bash",
+		);
+		// The same card settles: the opened list collapses to the count; it opens again on request.
+		await show(settled());
+		await browser.wait("document.querySelector('.nested .tool-link')?.textContent==='3 tool calls · 2 failed'");
+		assert.equal(await browser.evaluate("document.querySelectorAll('.nested-call').length"), 0);
+		await browser.click(".nested .tool-link");
+		await browser.wait("document.querySelectorAll('.nested-call').length===3");
+		assert.equal(
+			await browser.evaluate("[...document.querySelectorAll('.nested-call')].map((row)=>row.className).join()"),
+			"nested-call done,nested-call interrupted,nested-call error",
+		);
+	} finally {
+		await browser?.close();
+		await fixture.close();
+	}
+});
