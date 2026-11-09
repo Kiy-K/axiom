@@ -120,21 +120,31 @@ export class PluginWatcher extends Source {
 
 	/**
 	 * Resolves once the file events made before this call have reached the marks. All watches of a process share one
-	 * inotify queue, read in order, so an event in a sentinel watch of its own comes after the earlier ones.
+	 * inotify queue, read in order, so an event in a sentinel watch of its own comes after the earlier ones. When the
+	 * sentinel cannot be made, the watcher reports the failure and stops: the app builds on demand, as for a watch failure.
 	 */
 	async settle(): Promise<void> {
+		try {
+			await this.#sentinel();
+		} catch (error) {
+			this.#failed(error);
+		}
+	}
+
+	/** Makes the sentinel in a private directory and resolves on its event; every exit closes the watch and removes it. */
+	async #sentinel(): Promise<void> {
 		const dir = await mkdtemp(join(tmpdir(), "chord-watcher-"));
+		let sentinel: FSWatcher | undefined;
 		try {
 			const { promise, resolve, reject } = Promise.withResolvers<void>();
-			const sentinel = watch(dir, (_event, file) => {
-				if (file !== SENTINEL) return;
-				sentinel.close();
-				resolve();
-			});
+			// Only the write below makes an event in this private directory, so any event (whatever its name, which
+			// some platforms omit) is the sentinel's.
+			sentinel = watch(dir, () => resolve());
 			sentinel.on("error", reject);
 			writeFileSync(join(dir, SENTINEL), "");
 			await promise;
 		} finally {
+			sentinel?.close();
 			await rm(dir, { recursive: true, force: true });
 		}
 	}

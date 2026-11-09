@@ -158,6 +158,21 @@ describe("the watcher and single-file plugins (slice 12 §4)", () => {
 		expect(watcher.value).toMatchObject({ set: true, dirty: ["hello"] });
 		watcher.close();
 	});
+
+	it("a sentinel that cannot be made reports one failure and settles: discovery goes on, builds run on demand", async () => {
+		const { root, watcher, failures } = await watched();
+		const tmp = process.env.TMPDIR;
+		// os.tmpdir() reads TMPDIR at each call; a missing directory makes the sentinel's mkdtemp fail.
+		process.env.TMPDIR = join(root, "missing");
+		try {
+			await watcher.settle();
+		} finally {
+			if (tmp === undefined) delete process.env.TMPDIR;
+			else process.env.TMPDIR = tmp;
+		}
+		expect(failures).toHaveLength(1);
+		watcher.close();
+	});
 });
 
 describe("the watcher, fix round 1", () => {
