@@ -141,6 +141,8 @@ describe("the watcher and single-file plugins (slice 12 §4)", () => {
 		await writeFiles(root, { "hello.server.ts": "" });
 		watcher.mark(join(root, "hello.server.ts"));
 		expect(watcher.value).toMatchObject({ set: true, dirty: [] });
+		// The event of the file just written must reach the marks before the snapshot, or discovery would see it as a later change.
+		await watcher.settle();
 		const seen = watcher.discoverySnapshot();
 		watcher.know(await discoverPlugins([root], { kinds: KINDS }, context), seen);
 		expect(watcher.value).toMatchObject({ set: false, dirty: [] });

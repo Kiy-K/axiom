@@ -320,6 +320,7 @@ class PluginsComponent implements Plugins {
 
 	/** Discovers the plugins again; the changes of the plugin set and of `package.json`s seen until now clear. */
 	async #discover(context: Context): Promise<void> {
+		await this.#watcher.settle();
 		const seen = this.#watcher.discoverySnapshot();
 		this.#discovery = await discoverPlugins(
 			this.#options.roots,

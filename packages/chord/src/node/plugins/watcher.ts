@@ -7,7 +7,18 @@
 // marks are a JSON watchable; each mark records the generation of its latest change (generations only increase), so a
 // change during a build keeps its mark, however late an older build's rollout clears.
 
-import { type Dirent, existsSync, type FSWatcher, lstatSync, readdirSync, realpathSync, watch } from "node:fs";
+import {
+	type Dirent,
+	existsSync,
+	type FSWatcher,
+	lstatSync,
+	readdirSync,
+	realpathSync,
+	watch,
+	writeFileSync,
+} from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "../../context/index.ts";
 import type { JsonValue } from "../../json.ts";
@@ -40,6 +51,9 @@ export type WatcherOptions = {
 
 /** Directories never watched, and changes under them never marked. */
 const IGNORED = new Set(["node_modules", ".git"]);
+
+/** The file `settle` creates in its own watched directory: its event shows that the earlier events were read. */
+const SENTINEL = "settle";
 
 /**
  * The watcher and the marks (`state`), a JSON watchable published at most once per microtask turn with changes. It
@@ -102,6 +116,27 @@ export class PluginWatcher extends Source {
 	/** Whether the next build discovers again: the plugin set or a plugin's `package.json` changed. */
 	get needsDiscovery(): boolean {
 		return this.#set > 0 || this.#manifest > 0;
+	}
+
+	/**
+	 * Resolves once the file events made before this call have reached the marks. All watches of a process share one
+	 * inotify queue, read in order, so an event in a sentinel watch of its own comes after the earlier ones.
+	 */
+	async settle(): Promise<void> {
+		const dir = await mkdtemp(join(tmpdir(), "chord-watcher-"));
+		try {
+			const { promise, resolve, reject } = Promise.withResolvers<void>();
+			const sentinel = watch(dir, (_event, file) => {
+				if (file !== SENTINEL) return;
+				sentinel.close();
+				resolve();
+			});
+			sentinel.on("error", reject);
+			writeFileSync(join(dir, SENTINEL), "");
+			await promise;
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	}
 
 	/** What a discovery that starts now has seen. */
