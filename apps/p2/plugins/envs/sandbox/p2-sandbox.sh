@@ -1,6 +1,6 @@
 #!/bin/sh
 # p2's sandbox launcher on a host environment. `check` reports whether Gondolin can run here (JSON): Linux, a usable
-# /dev/kvm, Node >= 22 and QEMU >= 7.2. Every other command installs Gondolin once, then runs p2-sandbox.mjs with the
+# /dev/kvm, Node >= 22.19 and QEMU >= 7.2. Every other command installs Gondolin once, then runs p2-sandbox.mjs with the
 # same arguments. stdout belongs to that program (it carries pi-env's protocol), so setup output goes to stderr. Each
 # launcher version has its own directory (named by its content); sandboxes keep running across versions.
 set -eu
@@ -31,7 +31,12 @@ qemu_ok() {
 node_version() { command -v node >/dev/null 2>&1 && node -p 'process.versions.node' 2>/dev/null || true; }
 node_ok() {
 	v=$(node_version)
-	[ -n "$v" ] && [ "${v%%.*}" -ge 22 ]
+	[ -n "$v" ] || return 1
+	major=${v%%.*}
+	minor=${v#*.}
+	minor=${minor%%.*}
+	# Gondolin 0.14 declares Node >= 22.19; a lower 22 is refused here, not inside Gondolin.
+	[ "$major" -gt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -ge 19 ]; }
 }
 kvm_ok() { [ -r /dev/kvm ] && [ -w /dev/kvm ]; }
 
@@ -51,7 +56,7 @@ fi
 
 # Installing runs under a lock: two sessions connecting at once must not install twice.
 if [ "$(runtime)" != native ]; then
-	echo "p2-sandbox: this host cannot run sandboxes (needs Linux, a usable /dev/kvm, Node >= 22 and QEMU >= 7.2)" >&2
+	echo "p2-sandbox: this host cannot run sandboxes (needs Linux, a usable /dev/kvm, Node >= 22.19 and QEMU >= 7.2)" >&2
 	exit 3
 fi
 if [ ! -f "$D/.installed" ]; then

@@ -152,7 +152,7 @@ run commands on those hosts. Sharing is not filesystem isolation.
 From `apps/p2`: `npm run check`; `npm test`; focused:
 `node --import ./src/source.ts --test test/p2/envs.test.ts` and `test/p2/sandboxes.test.ts` (configuration,
 launcher arguments, confinement; with `P2_TEST_GONDOLIN=1` also a real VM through the launcher and a session in a
-sandbox over a loopback sshd, which need `/dev/kvm`, QEMU >= 7.2, Node >= 22, sshd and pi-env's packaged Linux daemon).
+sandbox over a loopback sshd, which need `/dev/kvm`, QEMU >= 7.2, Node >= 22.19, sshd and pi-env's packaged Linux daemon).
 
 The tests use fake providers, temporary data/workspaces and server port 0. A disposable loopback sshd has its own
 host key, authorized client key and remote HOME. The SSH case skips if sshd or a local pi-env daemon build is absent;
