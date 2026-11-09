@@ -253,6 +253,24 @@ mod platform {
 #[path = "axiom-process/windows_process.rs"]
 mod platform;
 
+/// Names a failed spawn the way Node does (`spawn <program> ENOENT: <OS text>`), so callers see the program and the error code.
+#[cfg(unix)]
+fn spawn_error(program: &str, error: io::Error) -> io::Error {
+    let code = match error.raw_os_error() {
+        Some(libc::ENOENT) => Some("ENOENT"),
+        Some(libc::EACCES) => Some("EACCES"),
+        Some(libc::EPERM) => Some("EPERM"),
+        Some(libc::ENOEXEC) => Some("ENOEXEC"),
+        Some(libc::ENOTDIR) => Some("ENOTDIR"),
+        _ => None,
+    };
+    let subject = match code {
+        Some(code) => format!("{program} {code}"),
+        None => program.to_string(),
+    };
+    io::Error::new(error.kind(), format!("spawn {subject}: {error}"))
+}
+
 fn run(output: &Output) -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
@@ -270,7 +288,7 @@ fn run(output: &Output) -> Result<(), Box<dyn std::error::Error>> {
         for (key, value) in env { command.env(key, value.as_str().ok_or("invalid environment value")?); }
         command.stdin(if has_stdin { Stdio::piped() } else { Stdio::null() });
         platform::configure(&mut command);
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().map_err(|error| spawn_error(program, error))?;
         let group = match platform::group(&child) { Ok(group) => group, Err(e) => { let _ = child.kill(); let _ = child.wait(); return Err(e.into()); } };
         (child, group)
     };

@@ -74,6 +74,32 @@ function supported(path) {
 	return featuresSupported.lint === "supported" || featuresSupported.format === "supported";
 }
 
+/**
+ * Biome's WASM build reports its version as 0.0.0, so it calls the real schema URL stale. That report is noise.
+ */
+function isSpuriousSchemaMismatch(diagnostic) {
+	return (
+		diagnostic.category === "deserialize" &&
+		diagnostic.description === "The configuration schema version does not match the CLI version 0.0.0"
+	);
+}
+
+// With a broken biome.json, Biome checks each file with its defaults, and --write would rewrite
+// the sources with them before the config error is reported. Check the config before any file.
+const configErrors = withFile("biome.json", readFileSync("biome.json", "utf8"), () =>
+	workspace.pullDiagnostics({
+		projectKey,
+		path: "biome.json",
+		categories: ["syntax", "lint", "action"],
+		pullCodeActions: false,
+	}).diagnostics,
+).filter((diagnostic) => diagnostic.severity !== "hint" && !isSpuriousSchemaMismatch(diagnostic));
+if (configErrors.length > 0) {
+	const lines = configErrors.map((diagnostic) => `  ${diagnostic.severity} ${diagnostic.category ?? ""}: ${diagnostic.description}`);
+	workspace.free();
+	throw new Error(`biome.json has errors; no files were checked or written:\n${lines.join("\n")}`);
+}
+
 let failures = 0;
 let checked = 0;
 try {
@@ -109,14 +135,7 @@ try {
 		if (write && formatted !== original) writeFileSync(path, formatted);
 		for (const diagnostic of diagnostics) {
 			if (diagnostic.severity === "hint") continue;
-			// Biome's WASM build reports its version as 0.0.0. Keep the real
-			// schema URL for editors, but ignore only this spurious mismatch.
-			if (
-				path === "biome.json" &&
-				diagnostic.category === "deserialize" &&
-				diagnostic.description === "The configuration schema version does not match the CLI version 0.0.0"
-			)
-				continue;
+			if (path === "biome.json" && isSpuriousSchemaMismatch(diagnostic)) continue;
 			console.error(`${path}: ${diagnostic.severity} ${diagnostic.category ?? ""}: ${diagnostic.description}`);
 			failures++;
 		}
