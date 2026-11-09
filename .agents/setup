@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+export PATH="$HOME/.local/share/axiom-orb/node/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+export DEBIAN_FRONTEND=noninteractive
+
+step() {
+	local label="$1" start=$SECONDS
+	shift
+	printf '\n==> %s\n' "$label"
+	"$@"
+	printf '==> %s finished in %ss\n' "$label" "$((SECONDS - start))"
+}
+
+install_system_packages() {
+	local package
+	local missing=()
+	for package in ca-certificates curl unzip xz-utils build-essential pkg-config ripgrep \
+		openssh-server libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev chromium; do
+		if [[ "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)" != installed ]]; then
+			missing+=("$package")
+		fi
+	done
+	if ((${#missing[@]})); then
+		sudo apt-get update
+		sudo apt-get install -y --no-install-recommends "${missing[@]}"
+	fi
+}
+
+install_toolchains() {
+	local arch node_version=26.12.1 bun_version=1.4.4 rust_version
+	case "$(uname -m)" in
+		x86_64) arch=x64 ;;
+		aarch64) arch=arm64 ;;
+		*) printf 'Unsupported architecture: %s\n' "$(uname -m)" >&2; return 1 ;;
+	esac
+
+	# p2's TUI tests need Node 26; the rest of the repository also runs on it.
+	if ! command -v node >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 26 ? 0 : 1)'; then
+		local node_dir="$HOME/.local/share/axiom-orb/node"
+		local archive="node-v$node_version-linux-$arch.tar.xz"
+		mkdir -p "$node_dir"
+		(
+			local download
+			download="$(mktemp -d)"
+			trap 'rm -rf -- "$download"' EXIT
+			cd "$download"
+			curl -fsSL --retry 3 --max-time 120 "https://nodejs.org/dist/v$node_version/$archive" -o "$archive"
+			curl -fsSL --retry 3 --max-time 30 "https://nodejs.org/dist/v$node_version/SHASUMS256.txt" -o SHASUMS256.txt
+			grep "  $archive\$" SHASUMS256.txt | sha256sum --check -
+			tar -xJf "$archive" --strip-components=1 -C "$node_dir"
+		)
+		hash -r
+	fi
+	if [[ "$(bun --version 2>/dev/null || true)" != "$bun_version" ]]; then
+		(
+			local download target="linux-$arch"
+			[[ "$arch" != x64 ]] || target=linux-x64-baseline
+			download="$(mktemp -d)"
+			trap 'rm -rf -- "$download"' EXIT
+			curl -fsSL --retry 3 --max-time 120 "https://github.com/oven-sh/bun/releases/download/bun-v$bun_version/bun-$target.zip" -o "$download/bun.zip"
+			unzip -q "$download/bun.zip" -d "$download"
+			mkdir -p "$HOME/.bun/bin"
+			install -m 755 "$download/bun-$target/bun" "$HOME/.bun/bin/bun"
+		)
+		hash -r
+	fi
+	# Debian 12's fd 8.6 lacks the flag used by find outside a Git checkout.
+	if ! fd --help 2>/dev/null | grep -F -- '--no-require-git' >/dev/null; then
+		(
+			local download target="$(uname -m)-unknown-linux-musl" fd_version=10.5.2
+			download="$(mktemp -d)"
+			trap 'rm -rf -- "$download"' EXIT
+			curl -fsSL --retry 3 --max-time 120 "https://github.com/sharkdp/fd/releases/download/v$fd_version/fd-v$fd_version-$target.tar.gz" -o "$download/fd.tar.gz"
+			tar -xzf "$download/fd.tar.gz" -C "$download"
+			mkdir -p "$HOME/.local/bin"
+			chmod +x "$download/fd-v$fd_version-$target/fd"
+			mv -f "$download/fd-v$fd_version-$target/fd" "$HOME/.local/bin/fd"
+		)
+		hash -r
+	fi
+	if ! command -v rustup >/dev/null; then
+		curl -fsSL --retry 3 --max-time 60 https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+	fi
+	rust_version="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' packages/env/daemon/rust-toolchain.toml)"
+	if ! rustup run "$rust_version" rustc --version >/dev/null 2>&1 \
+		|| ! rustup run "$rust_version" rustfmt --version >/dev/null 2>&1 \
+		|| ! rustup run "$rust_version" cargo-clippy --version >/dev/null 2>&1; then
+		rustup toolchain install "$rust_version" --profile minimal --component rustfmt --component clippy
+	fi
+	node --version
+	bun --version
+	fd --version
+	(cd packages/env/daemon && cargo --version)
+}
+
+persist_environment() {
+	local marker="# Axiom orb development environment"
+	if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+		cat >> "$HOME/.bash_profile" <<EOF
+
+$marker
+case "\$PWD" in
+  "$repo_root"|"$repo_root"/*)
+    if [[ "\${AXIOM_ORB_ENV:-}" != "$repo_root" ]]; then
+      export AXIOM_ORB_ENV="$repo_root"
+      export PATH="\$HOME/.local/share/axiom-orb/node/bin:\$HOME/.bun/bin:\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH"
+      export CHROMIUM_BIN="\${CHROMIUM_BIN:-/usr/bin/chromium}"
+    fi
+    ;;
+esac
+EOF
+	fi
+}
+
+hydrate_model_data() {
+	if bun run check:model-data; then
+		return
+	fi
+	# Use the same immutable catalog as the Nix build, without rewriting tracked model wrappers.
+	local revision
+	revision="$(node -p 'JSON.parse(require("node:fs").readFileSync("nix/model-catalog.json", "utf8")).revision')"
+	(
+		local catalog
+		catalog="$(mktemp)"
+		trap 'rm -f -- "$catalog"' EXIT
+		curl -fsSL --retry 3 --max-time 90 "https://pi.dev/api/models/revisions/$revision?types=chat,image,classifier" -o "$catalog"
+		printf '%s  %s\n' "${revision#sha256-}" "$catalog" | sha256sum --check -
+		node packages/ai/scripts/hydrate-model-catalog.ts "$catalog"
+	)
+}
+
+step 'System prerequisites' install_system_packages
+step 'Toolchains' install_toolchains
+step 'Persist login-shell environment' persist_environment
+step 'Locked workspace dependencies (no lifecycle scripts)' bun install --frozen-lockfile --ignore-scripts
+step 'Model data' hydrate_model_data
+step 'Workspace build (offline model data)' bun run build:offline
+step 'Environment daemon' bun run --filter './packages/env' build:daemon
+printf '\nAxiom orb setup ready in %ss. No credentials or running services are captured.\n' "$SECONDS"
