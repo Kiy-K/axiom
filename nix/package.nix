@@ -1,5 +1,6 @@
 {
   autoPatchelfHook,
+  bun,
   fd,
   fetchurl,
   importNpmLock,
@@ -17,6 +18,31 @@
 
 let
   nodejs = nodejs_26;
+  # The build runs `bun run build` in every package, so it needs Bun, as CI does. CI pins Bun 1.4.4; the pinned nixpkgs
+  # has 1.3.13 without an Intel macOS build, so take 1.4.4 from its release zips (hashes from those files).
+  bunPinned = bun.overrideAttrs (old: {
+    version = "1.4.4";
+    passthru = old.passthru // {
+      sources = {
+        "aarch64-darwin" = fetchurl {
+          url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-darwin-aarch64.zip";
+          hash = "sha256-wkDX8My5DCY6hJ/NsJt+5iYw2SE0jtaq/ahrnVd7xRA=";
+        };
+        "aarch64-linux" = fetchurl {
+          url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-aarch64.zip";
+          hash = "sha256-uqa7NvUdblhWHgK76oJQOKnfRU9nPW13bou/hvjHhQ4=";
+        };
+        "x86_64-darwin" = fetchurl {
+          url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-darwin-x64-baseline.zip";
+          hash = "sha256-1KFVrfv9CRVes7oFyeOlRPOSl9emhhbTx3WfZ6tcR9w=";
+        };
+        "x86_64-linux" = fetchurl {
+          url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip";
+          hash = "sha256-4ERutVmVdy65iUvrrppr42jZhai5Jx7hJEhvmUbu3XY=";
+        };
+      };
+    };
+  });
   packageJson = lib.importJSON (source + "/packages/coding-agent/package.json");
   # Lockfile root used by the pi.dev installer. It pins the coding agent's
   # runtime dependency tree and is kept in sync with package-lock.json by
@@ -52,6 +78,7 @@ let
 
     nativeBuildInputs = [
       nodejs
+      bunPinned
       importNpmLock.npmConfigHook
     ];
 
