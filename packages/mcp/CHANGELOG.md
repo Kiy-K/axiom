@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ### Added
 
 - Added `PipeTransport`, MCP's stdio transport over a program started by the caller through an `McpPipe` (`write`, `closeStdin`, `close`, `exited`), for example `@earendil-works/pi-env`'s `openProcess()` on another machine. `StdioTransport` and `PipeTransport` share the newline-delimited framing and the stderr tail.

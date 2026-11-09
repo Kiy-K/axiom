@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ### Added
 
 - `unsafe<T>(schema)` types a schema as accepting `T` without checking it, as TypeBox's `Type.Unsafe` does.

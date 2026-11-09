@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ### Added
 
 - `Tx.submission(id)` reads a committed submission record by ID, so a tool can find the entries of its run's inputs (`pi.live.run.inputs`) without scanning the transcript.

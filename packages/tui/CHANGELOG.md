@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ### Fixed
 
 - Fixed Markdown rendering HTML comments (`<!-- ... -->`) as visible text ([#11710](https://github.com/earendil-works/pi/issues/11710))

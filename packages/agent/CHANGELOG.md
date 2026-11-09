@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ## [1.5.0] - 2026-11-02
 
 ### Breaking Changes

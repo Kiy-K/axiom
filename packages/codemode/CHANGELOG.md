@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ### Added
 
 - Added `resolveSchemaRef(ref, root)`, which returns the subschema a local `$ref` (`#`, `#/$defs/Item`) names in a schema, with URI-decoded and JSON Pointer unescaped segments ([#11803](https://github.com/earendil-works/pi/issues/11803))

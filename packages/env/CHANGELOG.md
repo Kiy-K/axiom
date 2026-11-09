@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.
+
 ### Added
 
 - The daemon's `process` operation runs a program with plain pipes for stdin, stdout and stderr, for programs that speak a protocol on stdin and stdout such as MCP servers: `processWrite` and `processCloseStdin` feed its stdin in arrival order, output arrives as raw bytes per stream, and cancelling, a lost connection or the program's own exit kills its process group (on Windows, its job object), so a wrapper such as `npx` that exits leaves nothing running. `hello` reports it in `features`. `openProcess()` returns a `RemoteProcess`; daemons released before it fail the open with `not_supported`. Unlike terminals, it works on Windows too.
