@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@p2/app/v1";
@@ -25,7 +28,12 @@ try {
 /** A page with a touch screen showing a new terminal; its socket is wrapped so tests see sent bytes and inject output. */
 async function withTerminal(run: (page: Browser, origin: string) => Promise<void>): Promise<void> {
 	const shell = process.env.SHELL;
+	const inputrcBefore = process.env.INPUTRC;
 	process.env.SHELL = "/bin/sh";
+	// /bin/sh is bash here, and bash's readline turns bracketed paste on by itself; the paste test needs it off.
+	const inputrcDir = mkdtempSync(join(tmpdir(), "p2-inputrc-"));
+	writeFileSync(join(inputrcDir, "inputrc"), "set enable-bracketed-paste off\n");
+	process.env.INPUTRC = join(inputrcDir, "inputrc");
 	const fixture = await startFixture({ web: true });
 	let browser: Browser | undefined;
 	try {
@@ -67,6 +75,9 @@ async function withTerminal(run: (page: Browser, origin: string) => Promise<void
 		await fixture.close();
 		if (shell === undefined) delete process.env.SHELL;
 		else process.env.SHELL = shell;
+		if (inputrcBefore === undefined) delete process.env.INPUTRC;
+		else process.env.INPUTRC = inputrcBefore;
+		rmSync(inputrcDir, { recursive: true, force: true });
 	}
 }
 
