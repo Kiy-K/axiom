@@ -687,8 +687,8 @@ translated phone drawer and intercept chat taps.
   navigates before the answer; a chosen ID already in the catalog answers its row (a retry). `clone` and `fork` answer
   with the copy's row at once; the copy's worker start waits (in its start data) while its files are copied and, for
   an ID held before its row exists, up to 10 s for the row. `relocate` validates the destination at once (a missing
-  directory rejects) and starts the move; `archive` archives the row, then closes the session's `SessionArchived`
-  contributions and suspends its worker in the job (`restore` waits for a running archive first). `Sessions.operations`
+  directory rejects) and starts the move; `archive` archives the row, awaits the session's `SessionArchived`
+  contributions, and suspends its worker in the job (`restore` waits for a running archive first). `Sessions.operations`
   lists the running ones (`copying` while a copy's files are copied) and the failed ones with their error until
   `dismissOperation`: a busy worker refusing a move or a clone, a failed copy (its row archived again, its files
   removed). The agent's `location_move` goes through `SessionMoves.relocate`, which waits for the job and answers the

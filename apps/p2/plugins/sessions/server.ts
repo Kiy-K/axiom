@@ -452,10 +452,9 @@ export default defineFacet((host) => {
 		});
 
 		const archives = self.job(ArchiveJob, {
-			run: async ({ id }, ctx) => {
+			run: async ({ id }) => {
 				// Archive stops the worker whatever it is doing; its storage and history stay. Its holders (a page's
 				// lingering conversation) wait for a restore rather than start a worker the archive refuses.
-				for (const close of archived.value.values()) await close(id, ctx);
 				await natives().workers.suspend(id);
 				return null;
 			},
@@ -610,6 +609,8 @@ export default defineFacet((host) => {
 			},
 			archive: async ({ id }, ctx) => {
 				await catalog.update({ id, archived: true }, ctx);
+				// The contract: SessionArchived cleanup finishes before this call answers, so no window of the session is listed after it.
+				for (const close of archived.value.values()) await close(id, ctx);
 				await archives.start({ id }, ctx, { key: id });
 				return null;
 			},
