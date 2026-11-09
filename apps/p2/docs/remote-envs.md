@@ -40,7 +40,7 @@ they were started on; new ones open where the viewed conversation works.
 
 A sandbox is a Gondolin VM (earendil-works/gondolin: QEMU with KVM, host-side network policy) on an SSH environment,
 its host. In the Envs sheet it is listed under its host, and the host's **Save and test** reports whether it can run
-sandboxes, or why not. A host needs Linux, a `/dev/kvm` its SSH user may use, Node >= 22 and QEMU >= 7.2, found on the
+sandboxes, or why not. A host needs Linux, a `/dev/kvm` its SSH user may use, Node >= 22.19 and QEMU >= 7.2, found on the
 PATH of SSH commands or in `~/.local/bin` (e.g. a QEMU built from source with `--prefix=$HOME/.local` where the
 distribution's is too old, as Ubuntu 22.04's 6.2). Only the owner creates, edits,
 starts, stops and deletes sandboxes, in the Envs sheet; plugins pick an existing one (env listings carry `type`).

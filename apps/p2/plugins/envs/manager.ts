@@ -505,7 +505,8 @@ async function sandboxSupport(target: SshTarget, remote: RemotePlatform, launche
 	if (!report.qemu) missing.push("QEMU is not installed (on the PATH or in ~/.local/bin)");
 	else if (major < 7 || (major === 7 && minor < 2))
 		missing.push(`QEMU ${report.qemu} is too old (Gondolin needs 7.2)`);
-	if (!report.node || Number(report.node.split(".")[0]) < 22)
-		missing.push("Node 22 or newer is not installed (on the PATH or in ~/.local/bin)");
+	const [nodeMajor = 0, nodeMinor = 0] = report.node ? report.node.split(".").map(Number) : [];
+	if (!report.node || nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 19))
+		missing.push("Node 22.19 or newer is not installed (on the PATH or in ~/.local/bin)");
 	return { runtime: "none", detail: `This host cannot run sandboxes: ${missing.join(", ")}.` };
 }

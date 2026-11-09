@@ -1,6 +1,6 @@
 // Gondolin sandboxes (plugins/envs, type "gondolin"): their configuration, the launcher's arguments, and confinement:
 // a conversation working in a sandbox cannot leave it through the location tools, subagent placement or one-shot agents.
-// The VM itself runs only with P2_TEST_GONDOLIN=1 (it needs /dev/kvm, QEMU >= 7.2 and Node >= 22, and downloads the guest
+// The VM itself runs only with P2_TEST_GONDOLIN=1 (it needs /dev/kvm, QEMU >= 7.2 and Node >= 22.19, and downloads the guest
 // image on first use), with pi-env's Linux daemon for this machine (static: the guest is Alpine) from P2_TEST_DAEMON or
 // pi-env's package.
 
