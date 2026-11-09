@@ -18,7 +18,7 @@ Test references are coverage targets, not a claim that they passed in the curren
 | stdin | `jobs-real-process.test.ts::delivers send_input from the job tool to a real shell` |
 | Stop and double stop | `jobs-supervisor.test.ts::stops a job once and reports the same final state on a repeated stop` |
 | Session shutdown and process tree | `jobs-real-process.test.ts::cleans a descendant of a completed foreground command at session close`; `::kills a TERM-ignoring process group during session shutdown`. Escaped process groups require P7. |
-| Stale handles | `jobs-supervisor.test.ts::evicts the oldest finished job beyond the retention limit` |
+| Stale handles | `jobs-supervisor.test.ts::evicts the oldest finished job beyond the retention limit`; `::answers every operation on an evicted handle as an unknown job` (status, output, send_input, stop, list and an id never issued). |
 | Bounded log and cursor | `jobs-log-buffer.test.ts::reports bytes lost to the retention window for a stale cursor`; `::reads from a cursor and returns the next cursor` |
 | Denied launch | Blocked: needs P4 permission gateway. |
 | Sandbox isolation and sandbox-compatible handles | Blocked: needs P7. Owner checks above are not sandbox isolation. |
@@ -300,6 +300,24 @@ Complete and verify the existing supervisor on Linux before cross-platform valid
 5. Close only issue checklist items whose complete requirements have passed. Denied-launch and sandbox-isolation evidence remains pending P4 and P7 integration; do not treat host execution or session ownership as proof of either.
 
 Retain `send_input`: it is part of the frozen P3 contract. Deferring it requires an explicit decision and a corresponding contract change.
+
+## Resource limits
+
+Every bound the supervisor enforces, with the source constant. Paths relative to `packages/coding-agent/src/`.
+
+| Limit | Value | Source | Test |
+|---|---|---|---|
+| Yield threshold | 10 s | `core/tools/bash-supervision.ts:YIELD_AFTER_MS` | `jobs-bash-supervision.test.ts` |
+| Running jobs (adopted) | 8 | `core/jobs/supervisor.ts:MAX_RUNNING_JOBS` | `jobs-supervisor.test.ts::refuses adoption at the running limit...` |
+| Finished jobs retained | 16 | `supervisor.ts:MAX_FINISHED_JOBS` | `::evicts the oldest finished job...` |
+| Finished groups without emptiness proof | 16 per session | `supervisor.ts:MAX_UNPROVEN_GROUPS` | `::keeps the newest MAX_UNPROVEN_GROUPS finished groups...` |
+| Log ring per job | 512 KiB, allocated on first output | `core/jobs/log-buffer.ts:LOG_RETAINED_BYTES` | `jobs-log-buffer.test.ts` |
+| Log page | 64 KiB max per read (`job` tool default 16 KiB) | `core/jobs/log-buffer.ts:LOG_PAGE_MAX_BYTES`; `core/tools/job.ts:DEFAULT_OUTPUT_BYTES` | max: `jobs-log-buffer.test.ts`; default: `jobs-real-process.test.ts::pages job output at 16 KiB by default and at the caller's maxBytes` |
+| `send_input` size | 16 KiB; a write the pipe does not take within 1 s is `queued` | `core/jobs/managed-job.ts:MAX_INPUT_BYTES`, `STDIN_FLUSH_WAIT_MS` | `jobs-real-process.test.ts::accepts input of exactly the size cap and refuses one byte more`; `::queues stdin input a job does not read, then refuses further input` |
+| Stop grace | TERM, then KILL after 3 s; a stop reports `settled: false` after 2 s more | `managed-job.ts:STOP_GRACE_MS`, `supervisor.ts:STOP_WAIT_EXTRA_MS` | `::escalates a graceful stop...` |
+| Session cleanup confirmation wait | 6 s | `supervisor.ts:CLEANUP_CONFIRM_WAIT_MS` | `::bounds the wait when cleanup is never acknowledged` |
+
+Not limited: the number of foreground commands (they take no registry slot until the yield), job runtime (only an explicit `timeout`), CPU, memory and disk use of the command itself. Those need P7.
 
 ## Gate evidence to record
 

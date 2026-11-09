@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { MAX_INPUT_BYTES } from "../src/core/jobs/managed-job.ts";
 import { JobSupervisor } from "../src/core/jobs/supervisor.ts";
 import { createLocalBashOperations } from "../src/core/tools/bash.ts";
 import { createJobToolDefinition } from "../src/core/tools/job.ts";
@@ -81,6 +82,50 @@ describe("background jobs with the local shell", () => {
 				undefined as never,
 			);
 			expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("received:hello") });
+		} finally {
+			supervisor.killSession(OWNER);
+		}
+	});
+
+	it("accepts input of exactly the size cap and refuses one byte more", async () => {
+		const supervisor = new JobSupervisor();
+		const job = supervisor.start(request("read line; printf '%s' \"$line\" | wc -c", true));
+		try {
+			await job.launched;
+			const tooLarge = `${"a".repeat(MAX_INPUT_BYTES)}\n`;
+			await expect(supervisor.sendInput(job.jobId, OWNER, tooLarge)).rejects.toThrow("larger than");
+			// The refused write left the job running and its stdin untouched.
+			const exact = `${"a".repeat(MAX_INPUT_BYTES - 1)}\n`;
+			expect(await supervisor.sendInput(job.jobId, OWNER, exact)).toMatchObject({ bytes: MAX_INPUT_BYTES });
+			await job.settled;
+			expect(supervisor.output(job.jobId, OWNER, undefined, 1024).page.text).toContain(String(MAX_INPUT_BYTES - 1));
+		} finally {
+			supervisor.killSession(OWNER);
+		}
+	});
+
+	it("pages job output at 16 KiB by default and at the caller's maxBytes", async () => {
+		const supervisor = new JobSupervisor();
+		const job = supervisor.start(request("head -c 40000 /dev/zero | tr '\\0' a"));
+		const tool = createJobToolDefinition({ supervisor, owner: () => OWNER });
+		const run = async (params: { cursor?: string; maxBytes?: number }) => {
+			const result = await tool.execute(
+				"output",
+				{ action: "output", job_id: job.jobId, ...params },
+				undefined,
+				undefined,
+				undefined as never,
+			);
+			const text = (result.content[0] as { text: string }).text;
+			return { run: text.match(/a+/)?.[0].length, cursor: text.match(/cursor: (\d+)/)?.[1] };
+		};
+		try {
+			await job.settled;
+			const first = await run({});
+			expect(first.run).toBe(16 * 1024);
+			// The next page starts where the default page ended.
+			expect((await run({ cursor: first.cursor })).run).toBe(16 * 1024);
+			expect((await run({ maxBytes: 100 })).run).toBe(100);
 		} finally {
 			supervisor.killSession(OWNER);
 		}

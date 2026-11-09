@@ -7,7 +7,6 @@ import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 
 /** Retained output per job. Older bytes are dropped and reported as truncated. */
 export const LOG_RETAINED_BYTES = 512 * 1024;
-export const LOG_PAGE_DEFAULT_BYTES = 16 * 1024;
 export const LOG_PAGE_MAX_BYTES = 64 * 1024;
 
 export interface OutputPage {

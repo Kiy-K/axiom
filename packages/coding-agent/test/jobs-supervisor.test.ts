@@ -178,6 +178,27 @@ describe("JobSupervisor", () => {
 		expect(supervisor.status(ids[16], OWNER).state).toBe("completed");
 	});
 
+	it("answers every operation on an evicted handle as an unknown job", async () => {
+		const { operations, runs } = fakeOperations();
+		const supervisor = new JobSupervisor();
+		const ids: string[] = [];
+		for (let i = 0; i < 17; i++) {
+			const job = supervisor.start({ ...request(operations, `stale${i}`), name: undefined });
+			ids.push(job.jobId);
+			await flush();
+			runOf(runs, `stale${i}`).resolve(0);
+			await job.settled;
+		}
+		const stale = ids[0];
+		expect(() => supervisor.output(stale, OWNER, undefined, 1024)).toThrow(`Unknown job: ${stale}`);
+		await expect(supervisor.sendInput(stale, OWNER, "x")).rejects.toThrow(`Unknown job: ${stale}`);
+		await expect(supervisor.stop(stale, OWNER, { announce: true })).rejects.toThrow(`Unknown job: ${stale}`);
+		expect(supervisor.list(OWNER).map((job) => job.jobId)).not.toContain(stale);
+		expect(supervisor.isObserved(stale)).toBe(false);
+		// A handle that was never issued reads the same as an evicted one.
+		expect(() => supervisor.status("0000000000000000", OWNER)).toThrow("Unknown job");
+	});
+
 	it("keeps the finish notice when the model only read a running job", async () => {
 		const { operations, runs } = fakeOperations();
 		const supervisor = new JobSupervisor();
