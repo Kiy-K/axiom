@@ -546,9 +546,10 @@ describe("caps", () => {
 describe("summary", () => {
 	it("counts a space's files, versions and bytes and keeps its newest versions", async () => {
 		const files = await filesOf();
-		const a1 = await put(files, "docs/a.txt", "1");
-		const a2 = await put(files, "docs/a.txt", "22");
-		const b = await put(files, "b.txt", "333");
+		// Distinct created times: writes in the same millisecond tie, and a tie orders by the random id.
+		const a1 = await put(files, "docs/a.txt", "1", { created: 1_000 });
+		const a2 = await put(files, "docs/a.txt", "22", { created: 2_000 });
+		const b = await put(files, "b.txt", "333", { created: 3_000 });
 		expect(await files.summary.get("shared", context)).toEqual({
 			files: 2,
 			versions: 3,
@@ -567,7 +568,7 @@ describe("summary", () => {
 
 	it("keeps the newest 20 and stays across a restart", async () => {
 		const first = await filesOf();
-		for (let index = 0; index < 25; index++) await put(first, `f${index}`, "x");
+		for (let index = 0; index < 25; index++) await put(first, `f${index}`, "x", { created: 1_000 + index });
 		const summary = await first.summary.get("shared", context);
 		expect(summary?.newest).toHaveLength(20);
 		expect(summary?.newest[0]?.path).toBe("f24");
