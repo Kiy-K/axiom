@@ -278,7 +278,7 @@ requests/cookie secrecy and concurrent shutdown during worker preparation. `tui-
 command registry (when grammar, privileged/transcript/plugin/slash collisions, pi `keybindings.json` overrides, registry
 reload, overlay precedence, palette, `/hotkeys`); `tui-theme.test.ts` per-runtime themes, terminal colors, the launcher's
 preference loader and hot reload, and the data-only `preferences`/`capabilities`/`terminalColors` messages. Run these
-with Node 26.11.1; Node 24 remains valid for the server but cannot execute the sandbox tests.
+with Node 26.11.1; the server needs Node 26.5.1 or newer, and the sandbox tests need Node 22.19 on the sandbox host.
 
 ## Testing
 
@@ -687,8 +687,8 @@ translated phone drawer and intercept chat taps.
   navigates before the answer; a chosen ID already in the catalog answers its row (a retry). `clone` and `fork` answer
   with the copy's row at once; the copy's worker start waits (in its start data) while its files are copied and, for
   an ID held before its row exists, up to 10 s for the row. `relocate` validates the destination at once (a missing
-  directory rejects) and starts the move; `archive` archives the row, awaits the session's `SessionArchived`
-  contributions, and suspends its worker in the job (`restore` waits for a running archive first). `Sessions.operations`
+  directory rejects) and starts the move; `archive` archives the row and starts its job, which runs the session's
+  `SessionArchived` contributions, then suspends its worker; `archive` answers when the job ends (`restore` waits for a running archive first). `Sessions.operations`
   lists the running ones (`copying` while a copy's files are copied) and the failed ones with their error until
   `dismissOperation`: a busy worker refusing a move or a clone, a failed copy (its row archived again, its files
   removed). The agent's `location_move` goes through `SessionMoves.relocate`, which waits for the job and answers the

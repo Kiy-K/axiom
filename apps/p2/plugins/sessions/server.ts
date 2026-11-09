@@ -452,10 +452,15 @@ export default defineFacet((host) => {
 		});
 
 		const archives = self.job(ArchiveJob, {
-			run: async ({ id }) => {
+			run: async ({ id }, ctx) => {
 				// Archive stops the worker whatever it is doing; its storage and history stay. Its holders (a page's
-				// lingering conversation) wait for a restore rather than start a worker the archive refuses.
-				await natives().workers.suspend(id);
+				// lingering conversation) wait for a restore rather than start a worker the archive refuses. The worker
+				// stops even when a contribution fails, which the failure record shows.
+				try {
+					for (const close of archived.value.values()) await close(id, ctx);
+				} finally {
+					await natives().workers.suspend(id);
+				}
 				return null;
 			},
 			finish: async (outcome, tx) => {
@@ -609,9 +614,10 @@ export default defineFacet((host) => {
 			},
 			archive: async ({ id }, ctx) => {
 				await catalog.update({ id, archived: true }, ctx);
-				// The contract: SessionArchived cleanup finishes before this call answers, so no window of the session is listed after it.
-				for (const close of archived.value.values()) await close(id, ctx);
-				await archives.start({ id }, ctx, { key: id });
+				// Registered before any await, so a restore meeting this archive finds the job and waits for it. The
+				// contract: SessionArchived cleanup finishes before this call answers, so no window is listed after it.
+				const run = await archives.start({ id }, ctx, { key: id });
+				await run.outcome(ctx);
 				return null;
 			},
 			restore: async ({ id }, ctx) => {
