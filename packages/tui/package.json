@@ -48,7 +48,7 @@
 		"directory": "packages/tui"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=26.0.0"
 	},
 	"types": "./dist/index.d.ts",
 	"dependencies": {

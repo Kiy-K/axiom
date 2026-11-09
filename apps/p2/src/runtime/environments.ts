@@ -3,14 +3,14 @@
 // configuration's revision.
 import { createHash } from "node:crypto";
 import { readdir, stat } from "node:fs/promises";
-import { dirname, join, type PlatformPath, posix, win32 } from "node:path";
+import { dirname, join, posix, win32 } from "node:path";
 import type { FileError, Result } from "@earendil-works/pi-durable/env";
 import type { Connection } from "@earendil-works/pi-env";
 import { normalizePath } from "./config-json.ts";
 import type { DirectoryListing } from "./schemas.ts";
 
 /** Node's path rules of the remote system. */
-export async function remotePaths(connection: Connection): Promise<PlatformPath> {
+export async function remotePaths(connection: Connection): Promise<typeof posix> {
 	return (await connection.info()).os === "windows" ? win32 : posix;
 }
 

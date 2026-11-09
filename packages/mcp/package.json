@@ -48,7 +48,7 @@
 		"directory": "packages/mcp"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=26.0.0"
 	},
 	"dependencies": {
 		"cross-spawn": "7.0.6"

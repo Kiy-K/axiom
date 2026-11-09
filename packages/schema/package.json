@@ -45,7 +45,7 @@
 		"directory": "packages/schema"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=26.0.0"
 	},
 	"devDependencies": {
 		"@cfworker/json-schema": "4.1.6",

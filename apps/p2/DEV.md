@@ -5,7 +5,7 @@ the TUI threat model. Production/data directories must not be used for tests. Co
 
 ## Server and TUI
 
-The server supports Node 22.19+. The launcher requires Node >=26.5.1; slayer has Node 26.11.1 at
+The server and the launcher require Node >=26.5.1; slayer has Node 26.11.1 at
 `~/.local/bin/node26`. This wrapper supplies the libraries required by that binary. From `apps/p2`:
 
 ```sh

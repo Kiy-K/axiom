@@ -60,7 +60,7 @@
 		"@biomejs/biome": "2.6.6",
 		"@biomejs/wasm-nodejs": "2.6.6",
 		"@types/bun": "1.4.4",
-		"@types/node": "22.19.19",
+		"@types/node": "26.6.6",
 		"esbuild": "0.28.2",
 		"husky": "9.1.7",
 		"pnpm": "12.18.0",
@@ -68,7 +68,7 @@
 		"yaml": "2.9.1"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=26.0.0"
 	},
 	"version": "0.0.3",
 	"overrides": {

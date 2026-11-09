@@ -560,7 +560,7 @@ describe("RPC shutdown triggers", () => {
 	let savedEndListeners: Array<() => void> = [];
 
 	beforeEach(() => {
-		savedSignalListeners = signals.map((signal) => [signal, process.listeners(signal)]);
+		savedSignalListeners = signals.map((signal) => [signal, process.listeners(signal) as NodeJS.SignalsListener[]]);
 		savedEndListeners = process.stdin.listeners("end") as Array<() => void>;
 		for (const signal of signals) process.removeAllListeners(signal);
 		process.stdin.removeAllListeners("end");

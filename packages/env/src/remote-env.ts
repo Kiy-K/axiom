@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type PlatformPath, posix, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { Context } from "@earendil-works/chord/context";
@@ -65,11 +65,11 @@ type RemoteFileInfo = { name: string; kind: FileKind | "other"; size: number; mt
 type RemoteDirEntry = { name: string; raw?: number[]; info?: RemoteFileInfo; error?: Json };
 
 /** Node's path rules of the remote system. */
-export async function remotePath(connection: Connection): Promise<PlatformPath> {
+export async function remotePath(connection: Connection): Promise<typeof posix> {
 	return nodePlatform(await connection.info()).platform === "win32" ? win32 : posix;
 }
 
-function toInfo(path: string, remote: RemoteFileInfo, paths: PlatformPath): Result<FileInfo, FileError> {
+function toInfo(path: string, remote: RemoteFileInfo, paths: typeof posix): Result<FileInfo, FileError> {
 	if (remote.kind === "other") return err(new FileError("invalid", "Unsupported file type", path));
 	return ok({
 		name: paths.basename(path),

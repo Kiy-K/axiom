@@ -1,4 +1,4 @@
-import { join, type PlatformPath } from "node:path";
+import { join, type posix } from "node:path";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { BACKGROUND_CONTEXT } from "@p2/app/v1";
@@ -14,7 +14,7 @@ const LOAD_TIMEOUT_MS = 60_000;
 const SKILL_EXCLUDES = { hidden: true, names: ["node_modules"] };
 
 /** Project files read through a session's environment. */
-export function envFiles(env: ExecutionEnv, paths: PlatformPath): PromptFiles {
+export function envFiles(env: ExecutionEnv, paths: typeof posix): PromptFiles {
 	return {
 		paths,
 		async readText(path) {
@@ -43,7 +43,7 @@ export type PromptSource = {
 	directory: string;
 	cwd: string;
 	/** Path rules of the environment's system. */
-	paths: () => Promise<PlatformPath>;
+	paths: () => Promise<typeof posix>;
 	/** The global skills directory in the environment: `<data>/skills` locally, `~/.pi/p2/skills` remotely. */
 	skillsRoot: () => Promise<string>;
 	/** The global prompt templates directory: `<data>/prompts` locally, `~/.pi/p2/prompts` remotely. */

@@ -8,7 +8,7 @@ The docs under `packages/coding-agent/docs/` still say `pi`, `~/.pi/agent`, and 
 
 ## Getting started
 
-Axiom has no release archives or npm package yet; install it from source. It runs on [Bun](https://bun.sh) (tested with 1.4.4). The repository's build and check scripts still call `node` internally, so Node.js 22.19 or newer must also be on `PATH` to build.
+Axiom has no release archives or npm package yet; install it from source. It runs on [Bun](https://bun.sh) (tested with 1.4.4). The repository's build and check scripts still call `node` internally, so Node.js 26 or newer must also be on `PATH` to build.
 
 ```bash
 git clone https://github.com/Kiy-K/axiom

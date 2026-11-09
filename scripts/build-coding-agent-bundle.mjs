@@ -95,7 +95,7 @@ function commonBuildOptions() {
 		// needs transformation.
 		plugins: [lazyJitiPlugin, httpsProxyAgentNamedExportPlugin],
 		sourcemap: false,
-		target: "node22.19",
+		target: "node26.0",
 		// Do not apply the monorepo's source-oriented path aliases while bundling
 		// compiled output. Release builds must resolve the same package entries as
 		// an installed npm package.

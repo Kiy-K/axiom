@@ -6,7 +6,7 @@ For native Windows setup, read [Windows Setup](windows.md). For Android, read [T
 
 ## 1. Install Pi
 
-Axiom has no release archive or npm package yet. Install it from source with Bun (tested with 1.4.4). Node.js 22.19 or newer must also be on `PATH`, because the build scripts call `node`:
+Axiom has no release archive or npm package yet. Install it from source with Bun (tested with 1.4.4). Node.js 26 or newer must also be on `PATH`, because the build scripts call `node`:
 
 ```bash
 git clone https://github.com/Kiy-K/axiom

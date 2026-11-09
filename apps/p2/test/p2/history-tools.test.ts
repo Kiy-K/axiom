@@ -226,7 +226,7 @@ describe("history tools end to end (fake provider)", () => {
 			found = await call("history_search", { query: "zebrafish" }, `search-${attempt}`);
 		assert.match(found ?? "", /<history conversation=.*\n.*not instructions/);
 		const hit = Number(/#(\d+) user/.exec(found ?? "")?.[1]);
-		assert(hit > 0, found);
+		assert(hit > 0, found ?? "");
 		const read = await call("history_read", { mode: "items", entries: [hit] }, "read");
 		assert.match(read, new RegExp(`#${hit} user \\(Owner\\): the zebrafish migration plan`));
 		assert.equal((read.match(/^#\d+ /gm) ?? []).length, 1, "exactly the requested entry");

@@ -8,7 +8,7 @@
         "@biomejs/biome": "2.6.6",
         "@biomejs/wasm-nodejs": "2.6.6",
         "@types/bun": "1.4.4",
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "esbuild": "0.28.2",
         "husky": "9.1.7",
         "pnpm": "12.18.0",
@@ -44,7 +44,7 @@
         "yaml": "2.9.1",
       },
       "devDependencies": {
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "@types/proper-lockfile": "4.1.4",
         "@types/react": "19.3.0",
         "@types/react-dom": "19.3.0",
@@ -60,7 +60,7 @@
         "@earendil-works/pi-schema": "1.5.0",
       },
       "devDependencies": {
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "vitest": "5.1.0",
       },
     },
@@ -83,7 +83,7 @@
         "partial-json": "0.1.7",
       },
       "devDependencies": {
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "canvas": "3.2.3",
         "typebox": "1.4.5",
         "vitest": "5.1.0",
@@ -163,7 +163,7 @@
       "devDependencies": {
         "@types/cross-spawn": "6.0.6",
         "@types/hosted-git-info": "3.0.5",
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "@types/proper-lockfile": "4.1.4",
         "@types/semver": "7.8.0",
         "marked": "18.1.3",
@@ -233,7 +233,7 @@
       "devDependencies": {
         "@earendil-works/pi-ai": "1.5.0",
         "@earendil-works/pi-coding-agent": "1.5.0",
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "@vitest-evals/core": "0.18.0",
         "vitest": "5.1.0",
         "vitest-evals": "0.18.0",
@@ -268,7 +268,7 @@
       "name": "@earendil-works/pi-telemetry",
       "version": "1.5.0",
       "devDependencies": {
-        "@types/node": "22.19.19",
+        "@types/node": "26.6.6",
         "vitest": "5.1.0",
       },
     },
@@ -690,7 +690,7 @@
 
     "@types/ms": ["@types/ms@2.1.0", "", {}, "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA=="],
 
-    "@types/node": ["@types/node@22.19.19", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-dyh/xO2Fh5bYrfWaaqGrRQQGkNdmYw6AmaAUvYeUMNTWQtvb796ikLdmTchRmOlOiIJ1TDXfWgVx1QkUlQ6Hew=="],
+    "@types/node": ["@types/node@26.6.6", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog=="],
 
     "@types/proper-lockfile": ["@types/proper-lockfile@4.1.4", "", { "dependencies": { "@types/retry": "*" } }, "sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ=="],
 
@@ -1100,7 +1100,7 @@
 
     "undici": ["undici@8.12.4", "", {}, "sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA=="],
 
-    "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
+    "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
 
     "unenv": ["unenv@2.0.0-rc.24", "", { "dependencies": { "pathe": "^2.0.3" } }, "sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw=="],
 
@@ -1143,6 +1143,8 @@
     "@cspotcode/source-map-support/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 
     "@earendil-works/gondolin/undici": ["undici@6.29.1", "", {}, "sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA=="],
+
+    "bun-types/undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
 
     "gaxios/https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
 

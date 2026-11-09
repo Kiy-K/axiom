@@ -6,7 +6,7 @@ Axiom is a fork of [Pi](https://github.com/earendil-works/pi) (MIT; see [LICENSE
 
 ## Getting started
 
-Install from source with [Bun](https://bun.sh) (tested with 1.4.4; Node.js 22.19 or newer must also be on `PATH` because the build scripts call `node`):
+Install from source with [Bun](https://bun.sh) (tested with 1.4.4; Node.js 26 or newer must also be on `PATH` because the build scripts call `node`):
 
 ```bash
 git clone https://github.com/Kiy-K/axiom

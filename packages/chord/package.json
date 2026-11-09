@@ -157,7 +157,7 @@
 		"directory": "packages/chord"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=26.0.0"
 	},
 	"dependencies": {
 		"@earendil-works/pi-schema": "1.5.0",

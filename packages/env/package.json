@@ -42,7 +42,7 @@
 		"directory": "packages/env"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=26.0.0"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "1.5.0",

@@ -165,7 +165,7 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 			timeout: 5000,
 		});
 		const result = await readClipboard("getText", env);
-		assert.equal(result.ok, true, result.error);
+		assert.equal(result.ok, true, result.error ?? "clipboard read failed without an error");
 		assert.equal(result.value, "café £ÿ");
 	});
 
@@ -173,7 +173,7 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 		const { env } = await startX11(t);
 		await startServer(t, join(directory, "x11-test"), ["direct-text"], env);
 		const result = await readClipboard("getText", env);
-		assert.equal(result.ok, true, result.error);
+		assert.equal(result.ok, true, result.error ?? "clipboard read failed without an error");
 		assert.equal(result.value, "café 日本語");
 	});
 
@@ -204,7 +204,7 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 				timeout: 5000,
 			});
 			const result = await readClipboard(method, env);
-			assert.equal(result.ok, true, result.error);
+			assert.equal(result.ok, true, result.error ?? "clipboard read failed without an error");
 			assert.equal(result.length, bytes.length);
 			assert.equal(result.hash, createHash("sha256").update(bytes).digest("hex"));
 		}

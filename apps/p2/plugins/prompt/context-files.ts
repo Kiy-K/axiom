@@ -1,7 +1,7 @@
 // Skill frontmatter/prompt conventions adapted from earendil-works/pi (MIT).
 // See third-party/pi.LICENSE. This host uses only global and cwd-local skill roots.
 import { readdir } from "node:fs/promises";
-import { basename, dirname, join, type PlatformPath, resolve } from "node:path";
+import { basename, dirname, join, type posix, resolve } from "node:path";
 import { optionalText, stripBom } from "@p2/app/v1/node";
 import { type PromptTemplate, parseFrontmatter, parseTemplate, type SkillFile } from "./templates.ts";
 
@@ -23,7 +23,7 @@ export type LoadedPrompt = {
  * files and directories are `undefined`; other failures throw.
  */
 export type PromptFiles = {
-	readonly paths: Pick<PlatformPath, "join" | "dirname" | "resolve" | "basename">;
+	readonly paths: Pick<typeof posix, "join" | "dirname" | "resolve" | "basename">;
 	readText(path: string): Promise<string | undefined>;
 	/** Entries of a directory, without following symbolic links. */
 	entries(path: string): Promise<{ name: string; kind: "file" | "directory" | "other" }[] | undefined>;
@@ -80,7 +80,7 @@ async function skillFiles(files: PromptFiles, path: string, root = true): Promis
 }
 
 /** Each `AGENTS.md` candidate from the filesystem root down to `cwd`. */
-export function agentsCandidates(paths: Pick<PlatformPath, "join" | "dirname" | "resolve">, cwd: string): string[] {
+export function agentsCandidates(paths: Pick<typeof posix, "join" | "dirname" | "resolve">, cwd: string): string[] {
 	const ancestors: string[] = [];
 	for (let path = paths.resolve(cwd); ; path = paths.dirname(path)) {
 		ancestors.unshift(path);

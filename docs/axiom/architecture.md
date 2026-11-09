@@ -123,7 +123,7 @@ There is no "must read before edit" guard.
 - `./test.sh`: `env -i` with an allowlist and a temp HOME/TMP/XDG/npm cache, `LANG=C TZ=UTC`, git neutered, `PI_NO_LOCAL_LLM=1`, no API keys, then `bun run test`. Covers `packages/*` only.
 - E2E gating: `describe.skipIf(!process.env.<KEY>)` / credential helpers (`ai/test/azure-utils.ts`). Local LLM tests are skipped by `PI_NO_LOCAL_LLM`. coding-agent vitest sets `PI_OFFLINE=1` (`vitest.config.ts`).
 - Faux provider: `packages/ai/src/providers/faux.ts:fauxProvider` (keyless, provider `faux`, model `faux-1`, scripted `setResponses` of messages or factories, chars/4 usage, optional `tokensPerSecond`). Suite harness: `packages/coding-agent/test/suite/harness.ts:createHarness` returns a real `AgentSession` + faux + in-memory settings + `events`.
-- Platforms: `engines.node >=22.19.0` everywhere; CI uses Node 22. Shells: `cad/utils/shell.ts:getShellConfig` (Git Bash on Windows, legacy WSL bash rejected; `/bin/bash` → `bash` → `sh`), PowerShell tool. Standalone: `build:binary` = `bun build --compile` (`scripts/build-binaries.sh`: darwin/linux/windows × x64/arm64). Node bundle: `scripts/build-coding-agent-bundle.mjs` (esbuild → `dist/bundle/cli.js`). Nix: `flake.nix`, `nix/package.nix`.
+- Platforms: `engines.node >=26.0.0` (apps/p2: >=26.5.1); CI uses Node 26. Shells: `cad/utils/shell.ts:getShellConfig` (Git Bash on Windows, legacy WSL bash rejected; `/bin/bash` → `bash` → `sh`), PowerShell tool. Standalone: `build:binary` = `bun build --compile` (`scripts/build-binaries.sh`: darwin/linux/windows × x64/arm64). Node bundle: `scripts/build-coding-agent-bundle.mjs` (esbuild → `dist/bundle/cli.js`). Nix: `flake.nix`, `nix/package.nix`.
 
 ## 9. Baseline measurement hooks (no paid APIs)
 
