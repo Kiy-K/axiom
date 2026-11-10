@@ -98,6 +98,52 @@ jobs:
           bun run test:scripts
           bun run --sequential --filter './packages/*' --filter '!./packages/coding-agent' --filter '!./packages/durable' test
 
+  p2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CHROMIUM_BIN: /usr/bin/google-chrome
+      P2_BROWSER_TESTS: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openssh-server fd-find ripgrep
+          sudo ln -s $(which fdfind) /usr/local/bin/fd
+          "$CHROMIUM_BIN" --version
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Build
+        run: bun run build
+
+      - name: Build the pi-env daemon
+        run: |
+          bun run --filter './packages/env' build:daemon
+          install -D packages/env/daemon/target/debug/pi-env packages/env/bin/pi-env-linux-x64/pi-env
+
+      - name: Check p2
+        working-directory: apps/p2
+        run: bun run check
+
+      - name: Test p2
+        working-directory: apps/p2
+        run: bun run test
+
   mcp-conformance:
     runs-on: ubuntu-latest
     steps:

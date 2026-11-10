@@ -151,7 +151,7 @@ describe("foreign browser requests", () => {
 		await new Promise((resolve) => foreign.once("listening", resolve));
 		const foreignOrigin = `http://127.0.0.1:${(foreign.address() as AddressInfo).port}`;
 		const owner = await Browser.start();
-		const fresh = await Browser.start();
+		let browser: Browser | undefined = owner;
 		const ownerUi = `document.querySelector('.composer textarea') && !document.querySelector('nav[aria-label="Shared session"]') && !document.querySelector('.offline')`;
 		try {
 			// Every request the browser sends to p2: its URL, whether it carried the owner cookie, and p2's status.
@@ -208,13 +208,17 @@ describe("foreign browser requests", () => {
 			await owner.click("#open");
 			await owner.wait(`location.origin === ${JSON.stringify(p2)}`);
 			await owner.wait(ownerUi);
+			// Separate profiles, run sequentially: two Chromium trees can exhaust a constrained runner's PID limit.
+			await owner.close();
+			browser = undefined;
+			const fresh = await Browser.start();
+			browser = fresh;
 			await fresh.open(`${foreignOrigin}/`);
 			await fresh.click("#open");
 			await fresh.wait(`location.origin === ${JSON.stringify(p2)}`);
 			await fresh.wait(ownerUi);
 		} finally {
-			await owner.close();
-			await fresh.close();
+			await browser?.close();
 			foreign.close();
 		}
 	});

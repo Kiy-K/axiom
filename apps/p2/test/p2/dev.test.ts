@@ -555,23 +555,28 @@ test("a forced dev restart reaps locked workers before resuming their stores", {
 	for (const name of ["packages", "node_modules", "tsconfig.json", "tsconfig.base.json"])
 		await symlink(new URL(`../../../../${name}`, import.meta.url).pathname, join(directory, name));
 
-	// The old server misses its shutdown deadline before SessionHosts.close, and its worker ignores IPC disconnect.
+	// The old server misses its shutdown deadline before closing workers, and its worker ignores IPC disconnect.
 	// This reproduces a detached lock owner that only the supervisor can reap.
 	const serverEntry = join(project, "src/hosts/server.ts");
+	const serverSource = await readFile(serverEntry, "utf8");
+	const closeWorkers = "\t\t\t\tawait workers.close(BACKGROUND_CONTEXT);";
+	assert.ok(serverSource.includes(closeWorkers), "the shutdown fault injection must match the server");
+	assert.ok(serverSource.includes('import { mkdirSync, readFileSync } from "node:fs";'));
 	await writeFile(
 		serverEntry,
-		(await readFile(serverEntry, "utf8"))
-			.replace('import { mkdirSync } from "node:fs";', 'import { existsSync, mkdirSync, rmSync } from "node:fs";')
+		serverSource
 			.replace(
-				"\t\t\t\tawait hosts.close();",
-				'\t\t\t\tif (existsSync(join(dataDir, "test-hang-close"))) { rmSync(join(dataDir, "test-hang-close")); await new Promise<void>(() => {}); }\n\t\t\t\tawait hosts.close();',
+				'import { mkdirSync, readFileSync } from "node:fs";',
+				'import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";',
+			)
+			.replace(
+				closeWorkers,
+				`\t\t\t\tif (existsSync(join(dataDir, "test-hang-close"))) { rmSync(join(dataDir, "test-hang-close")); await new Promise<void>(() => {}); }\n${closeWorkers}`,
 			),
 	);
 	const workerEntry = join(project, "src/hosts/worker.ts");
-	await writeFile(
-		workerEntry,
-		(await readFile(workerEntry, "utf8")).replace('process.once("disconnect", () => void stop());', ""),
-	);
+	// workerMain installs its shutdown listener synchronously; the IPC link attaches later, during startup.
+	await appendFile(workerEntry, '\nprocess.removeAllListeners("disconnect");\n');
 	const probeDirectory = join(project, "plugins/dev-probe");
 	await mkdir(join(probeDirectory, "nested"), { recursive: true });
 	await pluginPackage(probeDirectory);
@@ -657,6 +662,7 @@ test("a forced dev restart reaps locked workers before resuming their stores", {
 			Boolean(value?.entries.some((entry) => JSON.stringify(entry.model).includes("forced-restart-persisted"))),
 		);
 		assert.equal(view?.entries.filter((entry) => entry.kind === "p2.input").length, 1);
+		assert.match(log, /the close did not finish within 8 s/, "the restart exercised forced shutdown");
 		assert.doesNotMatch(log, /cannot resume .*locked/);
 	} catch (error) {
 		console.error(log);

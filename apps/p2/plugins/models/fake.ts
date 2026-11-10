@@ -66,7 +66,8 @@ const SCRIPTED: Record<string, () => ReturnType<typeof fauxToolCall>> = {
 			code: [
 				'const one = (await tools.bash({ command: "echo one >> codemode.log; printf one" })).output;',
 				"let two;",
-				'try { two = (await tools.bash({ command: "sleep 5; echo two >> codemode.log; printf two" })).output; }',
+				// Record admission before sleeping: SIGKILL cannot roll back a detached shell's side effects.
+				'try { two = (await tools.bash({ command: "echo two >> codemode.log; sleep 5; printf two" })).output; }',
 				'catch (error) { two = "two failed: " + error.message; }',
 				'const three = (await tools.bash({ command: "echo three >> codemode.log; printf three" })).output;',
 				'return [one, two, three].join(" | ");',

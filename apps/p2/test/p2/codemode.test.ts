@@ -16,7 +16,7 @@ import type { Host, RefIn } from "../../src/runtime/chord.ts";
 import { Hosts } from "../../src/runtime/server.ts";
 import { buildTranscript } from "../../src/web/transcript.ts";
 import { wholeView } from "../fixtures/whole-view.ts";
-import { clientHost, type Fixture, holdIn, startFixture, until } from "./helpers.ts";
+import { clientHost, type Fixture, holdIn, poll, startFixture, until } from "./helpers.ts";
 
 const codemodeResults = (view: ConversationView | null | undefined): ToolResultMessage[] =>
 	(view?.entries ?? []).flatMap((entry) =>
@@ -92,7 +92,7 @@ describe("code mode (fake provider)", () => {
 		const running = await until(chat.view, (value) =>
 			Boolean(
 				live(value)?.nestedTools?.some(
-					(slot) => slot.status === "running" && String(slot.arguments.command).startsWith("sleep"),
+					(slot) => slot.status === "running" && String(slot.arguments.command).includes("sleep 5"),
 				),
 			),
 		);
@@ -106,7 +106,7 @@ describe("code mode (fake provider)", () => {
 			],
 		);
 		// A compatible reload of code mode (and chat) keeps the sandbox: the script keeps waiting on its call.
-		const sleeping = live(running)?.nestedTools?.find((slot) => String(slot.arguments.command).startsWith("sleep"));
+		const sleeping = live(running)?.nestedTools?.find((slot) => String(slot.arguments.command).includes("sleep 5"));
 		const report = await fixture.server.reload(["codemode", "chat"]);
 		assert.equal(report.stopped, undefined);
 		// The same nested call is still running after the commit (the view resets, then follows Durable again).
@@ -123,6 +123,8 @@ describe("code mode (fake provider)", () => {
 		const hosts = fixture.server.host.hold(Hosts, {}, BACKGROUND_CONTEXT);
 		const workers = await until(hosts.workers, (value) => Boolean(value?.[session]?.running && value[session]?.pid));
 		const pid = workers![session]!.pid!;
+		// The live slot is published before bash starts; interrupt only after the command recorded its first execution.
+		await poll(async () => (await readFile(join(fixture.workspace, "codemode.log"), "utf8")) === "first\none\ntwo\n");
 		process.kill(pid, "SIGKILL");
 		await until(hosts.workers, (value) => value?.[session]?.running === false);
 		chat.release();
@@ -133,7 +135,7 @@ describe("code mode (fake provider)", () => {
 		assert.equal(result.isError, false, text(result));
 		assert.match(scriptOutput(text(result)), /^one \| two failed: .+ \| three$/);
 		// `one` ran once, before the restart; the interrupted `two` was not rerun (bash is not replay-safe).
-		assert.equal(await readFile(join(fixture.workspace, "codemode.log"), "utf8"), "first\none\nthree\n");
+		assert.equal(await readFile(join(fixture.workspace, "codemode.log"), "utf8"), "first\none\ntwo\nthree\n");
 		// The result lists each call once, including the one finished before the restart.
 		assert.deepEqual(
 			detailCalls(result).map((call) => [call.id, call.status]),
@@ -151,9 +153,13 @@ describe("code mode (fake provider)", () => {
 		await until(chat.view, (value) =>
 			Boolean(
 				live(value)?.nestedTools?.some(
-					(slot) => slot.status === "running" && String(slot.arguments.command).startsWith("sleep"),
+					(slot) => slot.status === "running" && String(slot.arguments.command).includes("sleep 5"),
 				),
 			),
+		);
+		await poll(
+			async () =>
+				(await readFile(join(fixture.workspace, "codemode.log"), "utf8")) === "first\none\ntwo\nthree\none\ntwo\n",
 		);
 		chat.release();
 		// Stopping closes the sandbox while the Harness is still open (holders are disposed first). Durable stores no
@@ -179,7 +185,7 @@ describe("code mode (fake provider)", () => {
 			assert.match(scriptOutput(text(result)), /^one \| two failed: .+ \| three$/);
 			assert.equal(
 				await readFile(join(fixture.workspace, "codemode.log"), "utf8"),
-				"first\none\nthree\none\nthree\n",
+				"first\none\ntwo\nthree\none\ntwo\nthree\n",
 			);
 		} finally {
 			await client.close(BACKGROUND_CONTEXT);

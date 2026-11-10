@@ -1,5 +1,5 @@
 import { fork } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { serveDevChannel } from "../src/hosts/dev-channel.ts";
@@ -92,9 +92,9 @@ function start() {
 
 function isWorkerGroup(pid) {
 	try {
-		const lock = `CHORD2_LOCK=p2:${realpathSync(dataDir)}:worker:`;
 		const environment = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
-		if (!environment.some((entry) => entry.startsWith(lock))) return false;
+		// Workers inherit this identity; Chord's lock is now delivered over IPC, not in their environment.
+		if (!environment.includes(`P2_DEV_SUPERVISOR_PID=${process.pid}`)) return false;
 		// /proc/<pid>/stat: fields after the parenthesized command begin with state, ppid, pgrp.
 		const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
 		const fields = stat.slice(stat.lastIndexOf(") ") + 2).split(" ");
