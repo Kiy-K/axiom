@@ -14,6 +14,8 @@ Axiom runs its own commands with Bun. npm stays only where a step needs npm itse
 | Single-file Vitest run | `node node_modules/vitest/dist/cli.js --run <file>` (AGENTS.md) | run from the package root |
 | Pre-commit | see below | `.husky/pre-commit` |
 
+`bun run check` type-checks all packages as one program with `tsc --noEmit --checkers 1`. TypeScript 7 gives each checker its own type cache; the default of 4 checkers peaked above 4 GB on this program and was killed in a 4 GB orb, while one checker peaks near 3.3 GB (26 s, same result). Do not split the program per package instead: `/// <reference lib="dom" />` in chord/durable and the `cloudflare:workers` declarations in durable/codemode apply to the whole program, so a split reports false errors in `ai`, `chord` and `durable`.
+
 Pre-commit runs `scripts/check-lockfile-commit.mjs`, then `bun run check`. It also runs `(cd apps/p2 && bun run check)` when `packages/*`, `apps/p2/*` or root package/tsconfig files are staged, and `bun run check:browser-smoke` when `packages/ai`, `packages/web-ui`, `package.json` or `package-lock.json` are staged.
 
 Filter fan-outs use `bun run --filter './packages/*'`. The `./` prefix is required. CI's `other` suite excludes two packages: `--filter '!./packages/coding-agent' --filter '!./packages/durable'`. `bun --cwd <dir> run <script>` prints Bun's usage text and exits 0 in Bun 1.4.4 without running the script, so the repo uses `cd <dir> && bun run <script>` or `--filter` instead.

@@ -18,7 +18,7 @@
 		"build:native:darwin": "cd packages/tui && bun run build:native:darwin",
 		"build:native:linux": "cd packages/tui && bun run build:native:linux",
 		"build:native:win32": "cd packages/tui && bun run build:native:win32",
-		"check": "node scripts/biome-check.mjs --write && bun run check:pinned-deps && bun run check:runtime-deps && bun run check:ts-imports && bun run check:entry-graphs && bun run check:install-lock:coding-agent && tsc --noEmit && tsc --noEmit -p packages/coding-agent/examples/tsconfig.json && bun run check:browser-smoke",
+		"check": "node scripts/biome-check.mjs --write && bun run check:pinned-deps && bun run check:runtime-deps && bun run check:ts-imports && bun run check:entry-graphs && bun run check:install-lock:coding-agent && tsc --noEmit --checkers 1 && tsc --noEmit -p packages/coding-agent/examples/tsconfig.json && bun run check:browser-smoke",
 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
 		"check:pinned-deps": "node scripts/check-pinned-deps.mjs",
 		"check:runtime-deps": "node scripts/check-runtime-deps.mjs",
