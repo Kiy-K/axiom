@@ -135,8 +135,14 @@ describe("Pi Mobile UI regressions", { skip: !browserTests }, () => {
 		);
 		await poll(() => existsSync(join(profile, "DevToolsActivePort")), 20_000, "Chromium debugging port");
 		const port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split("\n")[0];
-		const pages = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { webSocketDebuggerUrl: string }[];
-		const socket = new WebSocket(pages[0].webSocketDebuggerUrl);
+		const pages = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as {
+			type: string;
+			webSocketDebuggerUrl: string;
+		}[];
+		// Google Chrome also lists its component extensions' background pages; drive the tab.
+		const page = pages.find((target) => target.type === "page");
+		assert(page, "Chromium page target");
+		const socket = new WebSocket(page.webSocketDebuggerUrl);
 		await new Promise<void>((resolve, reject) => {
 			socket.once("open", resolve);
 			socket.once("error", reject);

@@ -8,6 +8,7 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { localSystem, terminalDaemon } from "../../plugins/terminals/daemon.ts";
 import { connectTerminalHost } from "../../plugins/terminals/detached.ts";
 import {
@@ -67,8 +68,8 @@ test("terminal host: the agent's calls", { timeout: 120_000, skip: unavailable }
 	const directory = await mkdtemp(join(tmpdir(), "p2-agent-terminals-"));
 	const cwd = await realpath(await mkdtemp(join(tmpdir(), "p2-agent-terminal-cwd-")));
 	const shell = process.env.SHELL;
-	// The host and its shells inherit this: a plain shell, without the developer's rc files.
-	process.env.SHELL = "/bin/sh";
+	// The host inherits a shell with deterministic startup and readline for the queued opening command.
+	process.env.SHELL = fileURLToPath(new URL("../fixtures/terminal-shell.sh", import.meta.url));
 	const viewer = await client(directory);
 	const agent = await client(directory);
 	const open = async (sessionId: string, key: string, command?: string, name?: string) => {

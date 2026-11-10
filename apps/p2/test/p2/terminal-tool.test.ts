@@ -9,6 +9,7 @@ import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ConversationView } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT, whenLive } from "@p2/app/v1";
@@ -49,8 +50,8 @@ test("the agent's terminal tool on the session's shared terminals", {
 	skip: unavailable,
 }, async (t) => {
 	const shell = process.env.SHELL;
-	// The terminal host and its shells inherit this: a plain shell, without the developer's rc files.
-	process.env.SHELL = "/bin/sh";
+	// The host inherits a shell with deterministic startup and readline for the queued opening command.
+	process.env.SHELL = fileURLToPath(new URL("../fixtures/terminal-shell.sh", import.meta.url));
 	const fixture = await startFixture({ allowedHosts: ["share.test"] });
 	t.after(async () => {
 		await fixture.close();

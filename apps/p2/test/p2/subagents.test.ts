@@ -344,11 +344,11 @@ describe("subagents with code mode (fake provider)", () => {
 		return results(await until(chat.view, (view) => results(view).length > count)).at(-1)!;
 	};
 	/** Waits until `name`'s answer was reported and the main agent's turn on it ended, so it cannot race a later send. */
-	const reported = (name: string) =>
+	const reported = (name: string, count = 1) =>
 		until(
 			chat.view,
 			(view) =>
-				texts(view).includes(`<sender kind="subagent" name="${name}"/>`) &&
+				texts(view).filter((text) => text === `<sender kind="subagent" name="${name}"/>`).length === count &&
 				!(view?.docs["pi.live"] as { run?: unknown } | undefined)?.run,
 		);
 	const results = (view: ConversationView | null | undefined) =>
@@ -471,7 +471,7 @@ describe("subagents with code mode (fake provider)", () => {
 		const ran = scripts().at(-1);
 		assert.equal(ran?.isError, false, text(ran));
 		assert.match(text(ran), /echo: from coder$/);
-		await reported("coder");
+		await reported("coder", 2);
 		sub.release();
 		mcp.release();
 	});
