@@ -50,3 +50,6 @@ packages/agent/docs/extensions/pi-server-artifact/index.md
 
 # Orb portal metadata is specific to each thread.
 .amp/portals/*
+
+# Local code-graph index (large SQLite database).
+.codegraph/
