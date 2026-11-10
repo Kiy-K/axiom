@@ -256,6 +256,20 @@
       "description": "Global setting only.",
       "default": "ask"
     },
+    "permissionMode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "unrestricted"
+        },
+        {
+          "type": "string",
+          "const": "manual"
+        }
+      ],
+      "description": "Permission gateway mode. \"manual\" asks before edits, shell commands and tools with unknown effects, and denies protected paths. \"unrestricted\" turns the gateway off. Global setting only.",
+      "default": "unrestricted"
+    },
     "shellCommandPrefix": {
       "type": "string",
       "description": "Prefix prepended to every bash command, for example to enable shell aliases."

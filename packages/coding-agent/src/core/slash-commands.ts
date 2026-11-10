@@ -34,6 +34,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		description: "List background jobs, or stop one: /jobs stop <job_id>",
 		argumentHint: "[stop <job_id>]",
 	},
+	{
+		name: "permissions",
+		description: "Show the permission mode, active grants and recent decisions, or revoke grants",
+		argumentHint: "[revoke <grant_id>|all]",
+	},
 	{ name: "changelog", description: "Show changelog entries" },
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
 	{ name: "fork", description: "Create a new fork from a previous user message" },

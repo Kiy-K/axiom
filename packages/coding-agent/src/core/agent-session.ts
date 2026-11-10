@@ -126,6 +126,7 @@ import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./m
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { NestedToolCallRunner } from "./nested-tool-calls.ts";
+import { PermissionGateway } from "./permissions/index.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
@@ -445,6 +446,15 @@ export class AgentSession {
 	private readonly _jobOwner = randomUUID();
 	private readonly _jobs = new JobSupervisor({ registryDir: join(getAgentDir(), "jobs") });
 	private readonly _jobScope: JobScope = { supervisor: this._jobs, owner: () => this._jobOwner };
+	/** Authorizes every tool call and user shell command; see docs/axiom/permissions.md. */
+	private readonly _permissions = new PermissionGateway({
+		getMode: () => this.settingsManager.getPermissionMode(),
+		getCwd: () => this.sessionManager.getCwd(),
+		getSessionId: () => this.sessionId,
+		getPrompter: () => (this._extensionRunner.hasUI() ? this._extensionRunner.getUIContext() : undefined),
+		auditFile: join(getAgentDir(), "audit", "permissions.jsonl"),
+		onWarning: (error) => this._extensionRunner.emitError({ extensionPath: "<permissions>", event: "audit", error }),
+	});
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -700,7 +710,7 @@ export class AgentSession {
 	 * happens here instead of in wrappers.
 	 */
 	private _installAgentToolHooks(): void {
-		this.agent.beforeToolCall = (context) => this._beforeToolCall(context);
+		this.agent.beforeToolCall = (context, signal) => this._beforeToolCall(context, undefined, signal);
 		this.agent.afterToolCall = (context) => this._afterToolCall(context);
 	}
 
@@ -708,26 +718,34 @@ export class AgentSession {
 	private async _beforeToolCall(
 		{ toolCall, args }: BeforeToolCallContext,
 		parentToolCallId?: string,
+		signal?: AbortSignal,
 	): Promise<BeforeToolCallResult | undefined> {
 		const runner = this._extensionRunner;
-		if (!runner.hasHandlers("tool_call")) {
-			return undefined;
+		const input = args as Record<string, unknown>;
+
+		if (runner.hasHandlers("tool_call")) {
+			try {
+				const blocked = await runner.emitToolCall({
+					type: "tool_call",
+					toolName: toolCall.name,
+					toolCallId: toolCall.id,
+					...(parentToolCallId ? { parentToolCallId } : {}),
+					input,
+				});
+				if (blocked?.block) return blocked;
+			} catch (err) {
+				if (err instanceof Error) {
+					throw err;
+				}
+				throw new Error(`Extension failed, blocking execution: ${String(err)}`);
+			}
 		}
 
-		try {
-			return await runner.emitToolCall({
-				type: "tool_call",
-				toolName: toolCall.name,
-				toolCallId: toolCall.id,
-				...(parentToolCallId ? { parentToolCallId } : {}),
-				input: args as Record<string, unknown>,
-			});
-		} catch (err) {
-			if (err instanceof Error) {
-				throw err;
-			}
-			throw new Error(`Extension failed, blocking execution: ${String(err)}`);
-		}
+		// Last, so the gateway judges the input as the tool will receive it, after handlers may have changed it.
+		return this._permissions.authorize(
+			{ toolName: toolCall.name, toolCallId: toolCall.id, parentToolCallId, input },
+			signal,
+		);
 	}
 
 	/** `tool_result` handlers and image normalization. `parentToolCallId` is set for calls another tool made. */
@@ -799,7 +817,7 @@ export class AgentSession {
 					tools: this._getCallableTools(),
 					assistantMessage,
 					context: { messages: this.agent.state.messages, tools: this.agent.state.tools },
-					beforeToolCall: (context) => this._beforeToolCall(context, parentId),
+					beforeToolCall: (context, hookSignal) => this._beforeToolCall(context, parentId, hookSignal),
 					afterToolCall: (context) => this._afterToolCall(context, parentId),
 					signal,
 					onUpdate,
@@ -1490,6 +1508,11 @@ export class AgentSession {
 	/** Stop this session's background jobs gracefully. Called before the session is disposed. */
 	async stopJobs(): Promise<void> {
 		await this._jobs.stopSession(this._jobOwner);
+	}
+
+	/** Permission gateway of this session: mode, live grants and the audit tail. */
+	get permissions(): PermissionGateway {
+		return this._permissions;
 	}
 
 	/** Background jobs of this session, newest first. */
@@ -4049,6 +4072,7 @@ export class AgentSession {
 		onChunk?: (chunk: string) => void,
 		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
 	): Promise<BashResult> {
+		this._permissions.recordUserCommand(command);
 		const abortController = new AbortController();
 		this._bashAbortControllers.add(abortController);
 

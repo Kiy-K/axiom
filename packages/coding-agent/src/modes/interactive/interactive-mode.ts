@@ -106,6 +106,7 @@ import {
 } from "../../core/model-resolver.ts";
 import { CredentialSynchronizationError } from "../../core/model-runtime.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
+import { describeGrantScope } from "../../core/permissions/index.ts";
 import { findMatchingProviders } from "../../core/provider-matching.ts";
 import { RADIUS_PROVIDER_ID } from "../../core/radius.ts";
 import { planRadiusMcpServer } from "../../core/radius-mcp.ts";
@@ -3387,6 +3388,11 @@ export class InteractiveMode {
 			}
 			if (text === "/jobs" || text.startsWith("/jobs ")) {
 				await this.handleJobsCommand(text.slice("/jobs".length).trim());
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/permissions" || text.startsWith("/permissions ")) {
+				this.handlePermissionsCommand(text.slice("/permissions".length).trim());
 				this.editor.setText("");
 				return;
 			}
@@ -6870,6 +6876,44 @@ export class InteractiveMode {
 			}
 		} catch (error) {
 			text = error instanceof Error ? error.message : String(error);
+		}
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handlePermissionsCommand(args: string): void {
+		const { permissions } = this.session;
+		const revoke = /^revoke\s+(\S+)$/.exec(args);
+		let text: string;
+		if (revoke) {
+			const target = revoke[1];
+			text =
+				target === "all"
+					? `Revoked ${permissions.grants.clear()} grant(s).`
+					: permissions.grants.revoke(target)
+						? `Revoked grant ${target}.`
+						: `No live grant ${target}.`;
+		} else if (args !== "") {
+			text = "Usage: /permissions [revoke <grant_id>|all]";
+		} else {
+			const now = Date.now();
+			const grants = permissions.grants
+				.list()
+				.map(
+					(grant) =>
+						`  ${grant.id}  ${describeGrantScope(grant.scope)}  (${Math.ceil((grant.expiresAt - now) / 1000)}s left)`,
+				);
+			const recent = permissions.audit
+				.tail(10)
+				.map(
+					(entry) => `  ${entry.decision.padEnd(5)} ${entry.source.padEnd(12)} ${entry.toolName}: ${entry.detail}`,
+				);
+			text = [
+				`Permission mode: ${permissions.mode}${permissions.mode === "unrestricted" ? ' (gateway off; set permissionMode to "manual" in settings)' : ""}`,
+				grants.length > 0 ? `Grants:\n${grants.join("\n")}` : "Grants: none",
+				recent.length > 0 ? `Recent decisions:\n${recent.join("\n")}` : "Recent decisions: none",
+			].join("\n");
 		}
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(text, 1, 0));

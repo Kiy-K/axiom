@@ -20,7 +20,7 @@ Test references are coverage targets, not a claim that they passed in the curren
 | Session shutdown and process tree | `jobs-real-process.test.ts::cleans a descendant of a completed foreground command at session close`; `::kills a TERM-ignoring process group during session shutdown`. Escaped process groups require P7. |
 | Stale handles | `jobs-supervisor.test.ts::evicts the oldest finished job beyond the retention limit`; `::answers every operation on an evicted handle as an unknown job` (status, output, send_input, stop, list and an id never issued). |
 | Bounded log and cursor | `jobs-log-buffer.test.ts::reports bytes lost to the retention window for a stale cursor`; `::reads from a cursor and returns the next cursor` |
-| Denied launch | Blocked: needs P4 permission gateway. |
+| Denied launch | `suite/agent-session-permissions.test.ts::runs the call once the user allows it, and blocks it when the user denies`; `permissions-policy.test.ts::gates job stdin but not job reads, and asks for tools it knows nothing about` (see [permissions](permissions.md)). Only in `permissionMode: "manual"`; the default is off. |
 | Sandbox isolation and sandbox-compatible handles | Blocked: needs P7. Owner checks above are not sandbox isolation. |
 | Foreground and nested Bash | `jobs-bash-supervision.test.ts::preserves top-level foreground output and exit status with supervision`; `::never yields a command run by a script, so its result keeps exit_code` |
 | RPC and session dispatch | `rpc-headless-jobs.test.ts::delivers the yield and the next-prompt notice over RPC`; `suite/agent-session-jobs.test.ts::starts a background bash job from the model and announces its finish with the next prompt` |

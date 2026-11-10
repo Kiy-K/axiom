@@ -274,6 +274,13 @@ export const SettingsSchema = Type.Object(
 				default: SETTINGS_DEFAULTS.defaultProjectTrust,
 			}),
 		),
+		permissionMode: Type.Optional(
+			Type.Union([Type.Literal("unrestricted"), Type.Literal("manual")], {
+				description:
+					'Permission gateway mode. "manual" asks before edits, shell commands and tools with unknown effects, and denies protected paths. "unrestricted" turns the gateway off. Global setting only.',
+				default: SETTINGS_DEFAULTS.permissionMode,
+			}),
+		),
 		shellCommandPrefix: Type.Optional(
 			Type.String({ description: "Prefix prepended to every bash command, for example to enable shell aliases." }),
 		),
@@ -488,6 +495,7 @@ export interface WarningSettings extends Static<typeof WarningSettingsSchema> {}
 export type CodemodeMode = Static<typeof CodemodeModeSchema>;
 export interface CodemodeSettings extends Static<typeof CodemodeSettingsSchema> {}
 export type DefaultProjectTrust = NonNullable<SettingsInput["defaultProjectTrust"]>;
+export type PermissionModeSetting = NonNullable<SettingsInput["permissionMode"]>;
 export type QuietStartup = NonNullable<SettingsInput["quietStartup"]>;
 export type TransportSetting = NonNullable<SettingsInput["transport"]>;
 export type SessionShareDestination = NonNullable<SettingsInput["sessionShareDestination"]>;

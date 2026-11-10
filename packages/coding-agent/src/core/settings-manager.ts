@@ -17,6 +17,7 @@ import type {
 	FullscreenExitOutput,
 	MermaidRenderingMode,
 	PackageSource,
+	PermissionModeSetting,
 	QuietStartup,
 	SessionShareDestination,
 	Settings,
@@ -1025,6 +1026,20 @@ export class SettingsManager {
 	setDefaultProjectTrust(defaultProjectTrust: DefaultProjectTrust): void {
 		this.globalSettings.defaultProjectTrust = defaultProjectTrust;
 		this.markModified("defaultProjectTrust");
+		this.save();
+	}
+
+	getPermissionMode(): PermissionModeSetting {
+		// Fail closed: an unreadable global file or an unknown value (a typo) must not turn the gateway off.
+		if (this.globalSettingsLoadError) return "manual";
+		const value = this.globalSettings.permissionMode;
+		if (value === undefined) return SETTINGS_DEFAULTS.permissionMode;
+		return value === "unrestricted" ? "unrestricted" : "manual";
+	}
+
+	setPermissionMode(mode: PermissionModeSetting): void {
+		this.globalSettings.permissionMode = mode;
+		this.markModified("permissionMode");
 		this.save();
 	}
 

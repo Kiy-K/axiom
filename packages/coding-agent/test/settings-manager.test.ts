@@ -759,3 +759,44 @@ describe("SettingsManager", () => {
 		});
 	});
 });
+
+describe("SettingsManager permissionMode", () => {
+	const dir = join(process.cwd(), "test-settings-permission-tmp");
+	const agentDir = join(dir, "agent");
+	const projectDir = join(dir, "project");
+
+	beforeEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(join(projectDir, CONFIG_DIR_NAME), { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	const modeFor = (globalFile: string | undefined) => {
+		if (globalFile !== undefined) writeFileSync(join(agentDir, "settings.json"), globalFile);
+		return SettingsManager.create(projectDir, agentDir).getPermissionMode();
+	};
+
+	it("is unrestricted only when unset or exactly unrestricted", () => {
+		expect(modeFor(undefined)).toBe("unrestricted");
+		expect(modeFor("{}")).toBe("unrestricted");
+		expect(modeFor('{"permissionMode":"unrestricted"}')).toBe("unrestricted");
+		expect(modeFor('{"permissionMode":"manual"}')).toBe("manual");
+	});
+
+	it("fails closed on a misspelled value or an unreadable settings file", () => {
+		expect(modeFor('{"permissionMode":"Manual"}')).toBe("manual");
+		expect(modeFor('{"permissionMode":"strict"}')).toBe("manual");
+		expect(modeFor('{"permissionMode":42}')).toBe("manual");
+		expect(modeFor('{"permissionMode":"unrestricted"')).toBe("manual");
+	});
+
+	it("ignores a project setting that would loosen the global one", () => {
+		writeFileSync(join(agentDir, "settings.json"), '{"permissionMode":"manual"}');
+		writeFileSync(join(projectDir, CONFIG_DIR_NAME, "settings.json"), '{"permissionMode":"unrestricted"}');
+		expect(SettingsManager.create(projectDir, agentDir).getPermissionMode()).toBe("manual");
+	});
+});
