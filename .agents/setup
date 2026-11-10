@@ -98,21 +98,19 @@ install_toolchains() {
 
 persist_environment() {
 	local marker="# Axiom orb development environment"
-	if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
-		cat >> "$HOME/.bash_profile" <<EOF
-
+	# Amp's environment loader can replace PATH; keep our hook after it.
+	touch "$HOME/.bash_profile"
+	sed -i '/^# Axiom orb development environment$/,/^esac$/d' "$HOME/.bash_profile"
+	cat >> "$HOME/.bash_profile" <<EOF
 $marker
 case "\$PWD" in
   "$repo_root"|"$repo_root"/*)
-    if [[ "\${AXIOM_ORB_ENV:-}" != "$repo_root" ]]; then
-      export AXIOM_ORB_ENV="$repo_root"
-      export PATH="\$HOME/.local/share/axiom-orb/node/bin:\$HOME/.bun/bin:\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH"
-      export CHROMIUM_BIN="\${CHROMIUM_BIN:-/usr/bin/chromium}"
-    fi
+    export AXIOM_ORB_ENV="$repo_root"
+    export PATH="\$HOME/.local/share/axiom-orb/node/bin:\$HOME/.bun/bin:\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH"
+    export CHROMIUM_BIN="\${CHROMIUM_BIN:-/usr/bin/chromium}"
     ;;
 esac
 EOF
-	fi
 }
 
 hydrate_model_data() {
