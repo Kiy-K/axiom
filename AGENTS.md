@@ -59,6 +59,12 @@ Binding for Chord v2 (`packages/chord/src/`) and its tests, when writing and whe
 - For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don't embed multi-line scripts in `bash` commands.
 - Never commit unless the user asks.
 
+### Amp orbs
+
+- `.agents/setup` installs the pinned toolchain (Node 26, Bun 1.4.4, Rust from `packages/env/daemon/rust-toolchain.toml`), runs `bun install --frozen-lockfile --ignore-scripts`, and builds with `bun run build:offline`. Orbs therefore already have `dist/` built; rebuild after source changes with `bun run build:offline`.
+- Orb limits are 3 vCPU and 4 GiB RAM. `bun run check` is tuned for it (one tsc checker, about 3.3 GB). Do not run it in parallel with other heavy jobs. `./test.sh` needs about 200 MiB free under `TMPDIR`.
+- No services are needed to build or test; `.amp/services.yaml` is intentionally absent.
+
 ## Dependency and Install Security
 
 - Treat dep and lockfile changes as reviewed code. Direct registry deps, including internal workspace deps, stay pinned to exact versions.

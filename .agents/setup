@@ -14,6 +14,16 @@ step() {
 	printf '==> %s finished in %ss\n' "$label" "$((SECONDS - start))"
 }
 
+retry() {
+	local attempts="$1" attempt
+	shift
+	for ((attempt = 1; attempt <= attempts; attempt++)); do
+		"$@" && return 0
+		sleep $((attempt * 5))
+	done
+	return 1
+}
+
 install_system_packages() {
 	local package
 	local missing=()
@@ -56,11 +66,16 @@ install_toolchains() {
 	fi
 	if [[ "$(bun --version 2>/dev/null || true)" != "$bun_version" ]]; then
 		(
-			local download target="linux-$arch"
-			[[ "$arch" != x64 ]] || target=linux-x64-baseline
+			local download target sha256
+			# Hashes come from the bun-v1.4.4 release's SHASUMS256.txt; update them with bun_version.
+			case "$arch" in
+				x64) target=linux-x64-baseline sha256=e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76 ;;
+				arm64) target=linux-aarch64 sha256=baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e ;;
+			esac
 			download="$(mktemp -d)"
 			trap 'rm -rf -- "$download"' EXIT
 			curl -fsSL --retry 3 --max-time 120 "https://github.com/oven-sh/bun/releases/download/bun-v$bun_version/bun-$target.zip" -o "$download/bun.zip"
+			printf '%s  %s\n' "$sha256" "$download/bun.zip" | sha256sum --check -
 			unzip -q "$download/bun.zip" -d "$download"
 			mkdir -p "$HOME/.bun/bin"
 			install -m 755 "$download/bun-$target/bun" "$HOME/.bun/bin/bun"
@@ -70,10 +85,16 @@ install_toolchains() {
 	# Debian 12's fd 8.6 lacks the flag used by find outside a Git checkout.
 	if ! fd --help 2>/dev/null | grep -F -- '--no-require-git' >/dev/null; then
 		(
-			local download target="$(uname -m)-unknown-linux-musl" fd_version=10.5.2
+			local download target="$(uname -m)-unknown-linux-musl" fd_version=10.5.2 sha256
+			# Hashes match the GitHub release asset digests for v10.5.2.
+			case "$target" in
+				x86_64-*) sha256=7e2d07fa2b8807642aaec67b7e2972a9fbe4db26fcb340a7372392db42b26694 ;;
+				aarch64-*) sha256=63ea52cb31586e6d98efa2f06d73d542f16c7d0c4af0f07b579aaf9714cf907a ;;
+			esac
 			download="$(mktemp -d)"
 			trap 'rm -rf -- "$download"' EXIT
 			curl -fsSL --retry 3 --max-time 120 "https://github.com/sharkdp/fd/releases/download/v$fd_version/fd-v$fd_version-$target.tar.gz" -o "$download/fd.tar.gz"
+			printf '%s  %s\n' "$sha256" "$download/fd.tar.gz" | sha256sum --check -
 			tar -xzf "$download/fd.tar.gz" -C "$download"
 			mkdir -p "$HOME/.local/bin"
 			chmod +x "$download/fd-v$fd_version-$target/fd"
@@ -81,14 +102,15 @@ install_toolchains() {
 		)
 		hash -r
 	fi
+	# rustup does not retry DNS or connection failures itself (seen once: "Could not resolve host").
 	if ! command -v rustup >/dev/null; then
-		curl -fsSL --retry 3 --max-time 60 https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+		retry 3 sh -c 'curl -fsSL --max-time 60 https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none'
 	fi
 	rust_version="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' packages/env/daemon/rust-toolchain.toml)"
 	if ! rustup run "$rust_version" rustc --version >/dev/null 2>&1 \
 		|| ! rustup run "$rust_version" rustfmt --version >/dev/null 2>&1 \
 		|| ! rustup run "$rust_version" cargo-clippy --version >/dev/null 2>&1; then
-		rustup toolchain install "$rust_version" --profile minimal --component rustfmt --component clippy
+		retry 3 rustup toolchain install "$rust_version" --profile minimal --component rustfmt --component clippy
 	fi
 	node --version
 	bun --version
@@ -130,11 +152,29 @@ hydrate_model_data() {
 	)
 }
 
+# tsc rebuilds everything in about 20s even when nothing changed, so a restored snapshot skips it when every build input matches.
+build_workspace() {
+	local stamp="$repo_root/.git/axiom-orb-build.stamp" fingerprint
+	fingerprint="$({
+		node --version
+		bun --version
+		git ls-files -co --exclude-standard -z -- packages scripts nix apps bun.lock package.json tsconfig.json tsconfig.base.json | xargs -0 sha256sum
+		sha256sum packages/ai/src/providers/data/*.json
+	} | sha256sum)"
+	if [[ "$(cat "$stamp" 2>/dev/null || true)" == "$fingerprint" ]] && [[ -d packages/coding-agent/dist/bundle ]]; then
+		echo 'Build inputs unchanged since the last successful build; skipping.'
+		return
+	fi
+	rm -f -- "$stamp"
+	bun run build:offline
+	printf '%s' "$fingerprint" >"$stamp"
+}
+
 step 'System prerequisites' install_system_packages
 step 'Toolchains' install_toolchains
 step 'Persist login-shell environment' persist_environment
 step 'Locked workspace dependencies (no lifecycle scripts)' bun install --frozen-lockfile --ignore-scripts
 step 'Model data' hydrate_model_data
-step 'Workspace build (offline model data)' bun run build:offline
+step 'Workspace build (offline model data)' build_workspace
 step 'Environment daemon' bun run --filter './packages/env' build:daemon
 printf '\nAxiom orb setup ready in %ss. No credentials or running services are captured.\n' "$SECONDS"
