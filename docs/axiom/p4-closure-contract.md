@@ -2,7 +2,7 @@
 
 Roadmap issue [#1](https://github.com/Kiy-K/axiom/issues/1), phase P4. Paths are relative to `packages/coding-agent/src/`. Builds on [permissions.md](permissions.md).
 
-**Status:** revision 1, not reviewed. D4 and D5 are implemented; D3 is held. Written from the code at `0f394fb`. Next step is the fresh-context review, then implementation.
+**Status:** revision 2. D3, D4 and D5 are implemented. A fresh-context review of D3 found one blocker (the OAuth client secret command ran at sign-in and refresh without a prompt) and several smaller gaps; they are fixed, and the provider route below is carried over. Roadmap item 1 is **not** closed: it needs the provider route gated or a decision to accept it as not mediated. Written from the code at `0f394fb`. Next step is the fresh-context review, then implementation.
 
 ## Problem
 
@@ -33,6 +33,7 @@ Inventory, from a search of `spawn`/`exec` call sites and the dispatch paths. Ro
 | MCP stdio servers, scope `global` (`extensions/mcp/runtime.ts:createDefaultTransport`) | user's `mcp.json` | exempt | user-authored config |
 | MCP stdio servers, scope `project` | project `mcp.json` | trust-gated | project trust |
 | MCP stdio servers, scope `extension` | extension via `registerMcpServer` | **gated (new, D3)** | gateway |
+| `!command` apiKey and headers of providers an extension registers (`core/provider-composer.ts`); `auth.provider` on an extension's MCP server | extension | **gap** | none yet; see Carry-over |
 | `!cmd` config values (`core/resolve-config-value.ts`) | settings, `models.json`, `mcp.json` env | trust-gated (verify) | project trust |
 | Codemode `models.*` (`extensions/codemode/execute.ts`) | model-written script | not mediated | sends script-chosen content to a configured provider only; the `codemode` tool itself asks by name |
 | Fixed-argv helpers (`footer-data-provider.ts` git, `utils/tools-manager.ts`, clipboard, open-browser, external editor) | harness | exempt (verify) | no model- or extension-controlled argv |
@@ -47,14 +48,14 @@ Not covered by D2: an extension's `user_bash` handler can replace the executor (
 
 ### D3. MCP stdio servers registered by an extension ask before they spawn
 
-`McpServerEntry.scope` already records where an entry came from. In `manual` mode, `scope === "extension"` spawns through `gateway.authorizeExec` with the server's `command`, `args` and `cwd`, and the caller is the registering extension's path (`entry.source`). Same rules, grants and audit as `pi.exec`.
+`McpServerEntry.scope` already records where an entry came from. In `manual` mode, a server with `scope === "extension"` asks before each process connecting it starts: the stdio `command`, `args` and `cwd`, and every `!command` value in its `env`, `headers` or `oauth.clientSecret` (judged as `sh -c <body>`, since `resolveConfigValue` runs them through a shell). The caller is the registering extension's path (`entry.source`). Same rules, grants and audit as `pi.exec`. The MCP extension reaches the gateway through a new public `pi.authorizeExec(command, args, { cwd, signal, onBehalfOf })`, which judges and starts nothing; other extensions that spawn their own processes can use it too.
 
 Alternatives rejected:
 
 - Gate every stdio server: `global` entries are user-authored, and asking at every startup, before a UI is bound, would deny them all.
 - Gate `project` entries too: project trust already decides whether the file is read, and a second prompt per server adds friction without a new boundary. Revisit in P5, when trust levels are defined.
 
-Failure behavior: the connection goes to its existing error state with the gateway's reason, and does not retry in a loop on a denial.
+Failure behavior: the connection goes to its existing error state with the gateway's reason, and does not retry in a loop on a denial. The prompt is answered before `createTransport` runs, so a denied server starts nothing. Gating is once per connection attempt (not per retry). The OAuth client secret command cannot be asked at its use, because `oauthSettings()` is synchronous and runs on every token refresh inside the pi-mcp package, so it is approved at connect and sign-in and kept for the connection.
 
 Open question for the reviewer: connects can happen before a UI is bound, so extension servers would be denied at startup in `manual` mode. Proposed answer: that is correct (fail closed), and the user approves by reconnecting from `/mcp`.
 
@@ -113,3 +114,10 @@ One commit per decision: MCP spawn gate, log-page stripping, audit rotation, doc
 2. Is D3's startup denial acceptable, or should extension servers wait for a UI?
 3. Does D4's argument ("the model could print it") still hold for a job that started before a permission was revoked?
 4. Is single-generation 5 MiB rotation enough, or can an attacker use rotation to evict the record of an earlier decision?
+
+## Carry-over
+
+- **Extension-registered provider `!command` values.** `pi.registerProvider({ apiKey: "!cmd", headers })` makes the harness run an extension-chosen shell command in `provider-composer.ts` (`resolve`, async, via `resolveConfigValueOrThrow`). It is the one remaining route where an extension chooses what the harness runs and the gateway is not asked. Closing it means a gateway hook in `ModelRuntime` and a decision on what to do for `models.json` values (user config: exempt). `auth.provider` on an extension's MCP server reads a provider key, which may run such a command, and sends it to an extension-chosen URL; gate it with the same hook or document it as in-process extension code.
+- **Windows.** `!command` values run through the default shell or the configured one, while the gateway judges them as `sh -c <body>`; cross-spawn may route `.cmd` shims through cmd.exe. The POSIX lexical classifier may misjudge them there. Not verified.
+- **Prompt volume.** A server with N `!command` values asks N+1 times in a row. Grouping them into one prompt is not done.
+- **OAuth authorization URL scheme.** `openBrowser(authorizationUrl.href)` (`extensions/mcp/index.ts`, `cli.ts`) hands a URL from a server's OAuth discovery to `xdg-open`, `open` or `rundll32` with no check that it is `http(s)`. I found no check in `packages/mcp/src/oauth`; not tested. A server an extension registered chooses that URL. Fix: reject other schemes where the URL is built.
