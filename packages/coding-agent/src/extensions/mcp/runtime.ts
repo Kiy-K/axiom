@@ -35,7 +35,12 @@ import {
 	type OAuthChallenge,
 } from "@earendil-works/pi-mcp/oauth";
 import { VERSION } from "../../config.ts";
-import { resolveConfigValueOrThrow, resolveHeadersOrThrow } from "../../core/resolve-config-value.ts";
+import type { McpStdioServerConfig } from "../../core/mcp-servers.ts";
+import {
+	isCommandConfigValue,
+	resolveConfigValueOrThrow,
+	resolveHeadersOrThrow,
+} from "../../core/resolve-config-value.ts";
 import { sliceTail } from "../../core/tools/truncate.ts";
 import type { McpServerEntry } from "./config.ts";
 import type { McpServerLog } from "./log.ts";
@@ -63,6 +68,9 @@ export type McpTransportFactory = (
 	cwd: string,
 	authProvider: AuthProvider | undefined,
 ) => McpTransport;
+
+/** Resolves when the process may start and rejects with the reason when it may not; `signal` aborts when the server shuts down. */
+export type McpExecAuthorizer = (command: string, args: string[], cwd: string, signal: AbortSignal) => Promise<void>;
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -97,6 +105,42 @@ function expandHome(value: string): string {
 	return value;
 }
 
+/** A process to start: what the transport spawns, and what the permission gateway judges. */
+export interface McpLaunch {
+	command: string;
+	args: string[];
+	cwd: string;
+}
+
+function stdioLaunch(config: McpStdioServerConfig, cwd: string): McpLaunch {
+	return {
+		command: expandHome(config.command),
+		args: config.args?.map(expandHome) ?? [],
+		cwd: resolve(cwd, expandHome(config.cwd ?? ".")),
+	};
+}
+
+/** The processes that run a `!command` config value to get its value. */
+function shellLaunches(values: string[], cwd: string): McpLaunch[] {
+	return values.filter(isCommandConfigValue).map((value) => ({ command: "sh", args: ["-c", value.slice(1)], cwd }));
+}
+
+/**
+ * Every process connecting the server starts, as the permission gateway judges them: the stdio command, and each
+ * `!command` env or header value that is run through a shell. `env` entries are shown as written in front of the
+ * stdio command (`env NODE_OPTIONS=... node`), because the child runs with them (`PATH` and `NODE_OPTIONS` change
+ * what runs). The OAuth client secret is judged by `McpServerConnection.approveClientSecret`, where it is used.
+ */
+export function mcpLaunches(entry: McpServerEntry, cwd: string): McpLaunch[] {
+	const { config } = entry;
+	if ("url" in config) return shellLaunches(Object.values(config.headers ?? {}), cwd);
+	const launch = stdioLaunch(config, cwd);
+	const env = Object.entries(config.env ?? {}).map(([key, value]) => `${key}=${value}`);
+	const stdio =
+		env.length === 0 ? launch : { ...launch, command: "env", args: [...env, launch.command, ...launch.args] };
+	return [stdio, ...shellLaunches(Object.values(config.env ?? {}), cwd)];
+}
+
 export function createDefaultTransport(
 	entry: McpServerEntry,
 	cwd: string,
@@ -114,13 +158,8 @@ export function createDefaultTransport(
 	for (const [key, value] of Object.entries(config.env ?? {})) {
 		env[key] = resolveConfigValueOrThrow(value, `MCP server "${name}" env "${key}"`);
 	}
-	return new StdioTransport({
-		command: expandHome(config.command),
-		args: config.args?.map(expandHome),
-		cwd: resolve(cwd, expandHome(config.cwd ?? ".")),
-		env,
-		stderr: "pipe",
-	});
+	const launch = stdioLaunch(config, cwd);
+	return new StdioTransport({ ...launch, env, stderr: "pipe" });
 }
 
 /** Servers that do not implement `resources/templates/list` have no templates. */
@@ -164,6 +203,8 @@ export class McpServerConnection implements McpToolCaller, McpResourceServer {
 	private readonly onTools: (connection: McpServerConnection) => void;
 	private readonly onChange: ((connection: McpServerConnection) => void) | undefined;
 	private readonly log: McpServerLog | undefined;
+	private readonly authorizeExec: McpExecAuthorizer | undefined;
+	private approvedClientSecret: string | undefined;
 
 	constructor(options: {
 		entry: McpServerEntry;
@@ -177,6 +218,8 @@ export class McpServerConnection implements McpToolCaller, McpResourceServer {
 		onChange?: (connection: McpServerConnection) => void;
 		/** Receives the server's log messages (`notifications/message`). */
 		log?: McpServerLog;
+		/** Asked before each process connecting starts. A rejection fails the connection and nothing starts. */
+		authorizeExec?: McpExecAuthorizer;
 	}) {
 		this.entry = options.entry;
 		this.cwd = options.cwd;
@@ -184,6 +227,7 @@ export class McpServerConnection implements McpToolCaller, McpResourceServer {
 		this.onTools = options.onTools;
 		this.onChange = options.onChange;
 		this.log = options.log;
+		this.authorizeExec = options.authorizeExec;
 		const url = this.oauthUrl;
 		const provider = "url" in this.entry.config ? this.entry.config.auth?.provider : undefined;
 		this.authProvider = url
@@ -218,15 +262,21 @@ export class McpServerConnection implements McpToolCaller, McpResourceServer {
 		return usesOAuth(this.entry) && "url" in this.entry.config ? this.entry.config.url : undefined;
 	}
 
+	private clientSecret(config: string): string {
+		if (this.approvedClientSecret !== undefined) return this.approvedClientSecret;
+		// A gated server resolves a command only through approveClientSecret.
+		if (this.authorizeExec && isCommandConfigValue(config)) {
+			throw new Error(`MCP server "${this.entry.name}" oauth.clientSecret is a command that was not approved`);
+		}
+		return resolveConfigValueOrThrow(config, `MCP server "${this.entry.name}" oauth.clientSecret`);
+	}
+
 	oauthSettings(): McpOAuthSettings {
 		const oauth = "url" in this.entry.config ? this.entry.config.oauth : undefined;
 		if (!oauth) return {};
 		return {
 			clientId: oauth.clientId,
-			clientSecret:
-				oauth.clientSecret === undefined
-					? undefined
-					: resolveConfigValueOrThrow(oauth.clientSecret, `MCP server "${this.entry.name}" oauth.clientSecret`),
+			clientSecret: oauth.clientSecret === undefined ? undefined : this.clientSecret(oauth.clientSecret),
 			callbackPort: oauth.callbackPort,
 			callbackUrl: oauth.callbackUrl,
 			scope: oauth.scope,
@@ -339,9 +389,43 @@ export class McpServerConnection implements McpToolCaller, McpResourceServer {
 		await client.close().catch(() => undefined);
 	}
 
+	/** Ask before any process this connection starts. A rejection fails the connection and nothing has started. */
+	private async authorizeLaunches(): Promise<void> {
+		const authorize = this.authorizeExec;
+		if (!authorize) return;
+		for (const launch of mcpLaunches(this.entry, this.cwd)) {
+			await authorize(launch.command, launch.args, launch.cwd, this.shutdown.signal);
+		}
+		await this.approveClientSecret();
+		// The prompt may have stayed open while the server was disabled, replaced or shut down.
+		if (this.closed) throw new Error("shut down while waiting for permission");
+	}
+
+	/**
+	 * For a gated server, ask before the OAuth client secret's `!command` runs and keep its value for this connection:
+	 * `oauthSettings()` is called synchronously on every token refresh and cannot ask. Resolving once also means one
+	 * approval covers the refreshes. Call it before `oauthSettings()` anywhere a sign-in starts.
+	 */
+	async approveClientSecret(): Promise<void> {
+		const secret = "url" in this.entry.config ? this.entry.config.oauth?.clientSecret : undefined;
+		if (!this.authorizeExec || secret === undefined || !isCommandConfigValue(secret) || this.approvedClientSecret)
+			return;
+		await this.authorizeExec("sh", ["-c", secret.slice(1)], this.cwd, this.shutdown.signal);
+		this.approvedClientSecret = resolveConfigValueOrThrow(
+			secret,
+			`MCP server "${this.entry.name}" oauth.clientSecret`,
+		);
+	}
+
 	private async open(): Promise<McpClient> {
 		this.state = "connecting";
 		this.changed();
+		// Once per open, not per retry: one approval covers the attempts that follow it.
+		try {
+			await this.authorizeLaunches();
+		} catch (error) {
+			throw this.connectFailed(error);
+		}
 		const retries = "url" in this.entry.config ? CONNECT_RETRY_DELAYS_MS : [];
 		for (let attempt = 0; ; attempt++) {
 			this.stderrTail = undefined;

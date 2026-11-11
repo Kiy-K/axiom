@@ -442,6 +442,25 @@ function createExtensionAPI(
 			);
 		},
 
+		authorizeExec(
+			command: string,
+			args: string[],
+			options?: { cwd?: string; signal?: AbortSignal; onBehalfOf?: string },
+		) {
+			assertActive();
+			return (
+				runtime
+					// `args` is optional in untyped extension code, as for `exec` above.
+					.authorizeExec(command, args ?? [], {
+						cwd: options?.cwd ?? cwd,
+						extensionPath: options?.onBehalfOf ?? extension.path,
+						signal: options?.signal,
+					})
+					// The prompt may have stayed open across a reload; the caller must not spawn for a stale session.
+					.then(assertActive)
+			);
+		},
+
 		getActiveTools(): string[] {
 			assertActive();
 			return runtime.getActiveTools();

@@ -1,11 +1,15 @@
-import { readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { SystemMessage, ToolResultMessage } from "@earendil-works/pi-ai/compat";
 import { createMcpToolName, type JsonRpcRequest, LATEST_PROTOCOL_VERSION } from "@earendil-works/pi-mcp";
 import { createInMemoryTransportPair } from "@earendil-works/pi-mcp/testing";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ENV_AGENT_DIR } from "../../src/config.ts";
 import type { ExtensionAPI, ExtensionFactory } from "../../src/core/extensions/types.ts";
+import type { McpServerConfig } from "../../src/core/mcp-servers.ts";
 import type { SessionManager } from "../../src/core/session-manager.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import type { McpExposure, McpServerEntry } from "../../src/extensions/mcp/config.ts";
@@ -1268,5 +1272,176 @@ describe("AgentSession MCP tools after resume and reload", () => {
 
 		await vi.waitFor(() => expect(connected).toEqual(["docs", "docs"]));
 		await vi.waitFor(() => expect(harness.session.getActiveToolNames()).toContain("mcp__docs__search"));
+	});
+});
+
+describe("AgentSession MCP stdio servers and the permission gateway", () => {
+	const harnesses: Harness[] = [];
+	let agentDir: string;
+
+	beforeEach(() => {
+		agentDir = mkdtempSync(join(tmpdir(), "perm-mcp-"));
+		vi.stubEnv(ENV_AGENT_DIR, agentDir);
+	});
+
+	afterEach(() => {
+		while (harnesses.length > 0) harnesses.pop()?.cleanup();
+		vi.unstubAllEnvs();
+		rmSync(agentDir, { recursive: true, force: true });
+	});
+
+	/**
+	 * `registered` servers come from an extension, `configured` from mcp.json. Every prompt is answered with
+	 * `answer()`; `spawned` lists the servers whose transport was created.
+	 */
+	async function setup(options: {
+		permissionMode?: "manual";
+		registered?: Record<string, McpServerConfig>;
+		configured?: McpServerEntry[];
+		answer?: () => string | undefined;
+	}) {
+		const spawned: string[] = [];
+		const prompts: string[] = [];
+		const harness = await createHarness({
+			initialActiveToolNames: [],
+			...(options.permissionMode ? { settings: { permissionMode: options.permissionMode } } : {}),
+			extensionFactories: [
+				(pi) => {
+					for (const [name, config] of Object.entries(options.registered ?? {}))
+						pi.registerMcpServer(name, config);
+				},
+				createCodemodeExtension(),
+				createMcpExtension({
+					loadConfig: () => ({ servers: options.configured ?? [], errors: [] }),
+					createTransport: (entry) => {
+						spawned.push(entry.name);
+						const pair = createFakeServer([]);
+						void pair.server.start();
+						return pair.client;
+					},
+				}),
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({
+			uiContext: createTestUiContext({
+				select: async (title) => {
+					prompts.push(title);
+					return options.answer?.();
+				},
+			}),
+		});
+		return { harness, spawned, prompts };
+	}
+
+	const stdio = (command: string, extra: Partial<McpServerConfig> = {}): McpServerConfig =>
+		({ command, args: ["--flag", "it's"], ...extra }) as McpServerConfig;
+
+	it("asks before an extension's stdio server starts, naming the extension and the exact command", async () => {
+		const { prompts, spawned } = await setup({
+			permissionMode: "manual",
+			registered: { plugin: stdio("node") },
+			answer: () => "Deny",
+		});
+		await vi.waitFor(() => expect(prompts).toHaveLength(1));
+		expect(prompts[0]).toContain("Permission needed: pi.exec");
+		expect(prompts[0]).toContain("Extension: <inline:1>");
+		// The harness runs MCP in a temp dir and the gateway in process.cwd(), so a `cd` shows; in a session they match.
+		expect(prompts[0]).toContain("&& node --flag 'it'\\''s'");
+		// Denied: no transport was created, and the connection does not retry in a loop.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(spawned).toEqual([]);
+		expect(prompts).toHaveLength(1);
+	});
+
+	it("starts the server once the user allows it, and shows the working directory when it is not the session's", async () => {
+		const { prompts, spawned } = await setup({
+			permissionMode: "manual",
+			registered: { plugin: stdio("node", { cwd: "/elsewhere" }) },
+			answer: () => "Allow once",
+		});
+		await vi.waitFor(() => expect(spawned).toEqual(["plugin"]));
+		expect(prompts).toHaveLength(1);
+		expect(prompts[0]).toContain("run cd /elsewhere && node --flag");
+	});
+
+	it("asks about each !command value an extension's server needs, before it starts anything", async () => {
+		const { prompts, spawned } = await setup({
+			permissionMode: "manual",
+			registered: { plugin: stdio("node", { env: { TOKEN: "!cat /secret/token" } }) },
+			answer: () => "Allow once",
+		});
+		await vi.waitFor(() => expect(spawned).toEqual(["plugin"]));
+		expect(prompts).toHaveLength(2);
+		expect(prompts[0]).toContain("&& env 'TOKEN=!cat /secret/token' node --flag");
+		expect(prompts[1]).toContain("sh -c 'cat /secret/token'");
+	});
+
+	it("shows the env a stdio server runs with, since NODE_OPTIONS or PATH change what runs", async () => {
+		const { prompts } = await setup({
+			permissionMode: "manual",
+			registered: { plugin: stdio("node", { env: { NODE_OPTIONS: "--require /tmp/x.js" } }) },
+			answer: () => "Deny",
+		});
+		await vi.waitFor(() => expect(prompts).toHaveLength(1));
+		expect(prompts[0]).toContain("env 'NODE_OPTIONS=--require /tmp/x.js' node --flag");
+	});
+
+	it("asks about an OAuth client secret command of an extension's HTTP server before the connection is used", async () => {
+		const { prompts, spawned } = await setup({
+			permissionMode: "manual",
+			registered: { web: { url: "http://web.invalid", oauth: { clientSecret: "!echo s3cret" } } as McpServerConfig },
+			answer: () => "Deny",
+		});
+		await vi.waitFor(() => expect(prompts).toHaveLength(1));
+		expect(prompts[0]).toContain("sh -c 'echo s3cret'");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(spawned).toEqual([]);
+	});
+
+	it("does not start the stdio command when a !command value is denied", async () => {
+		const answers = ["Allow once", "Deny"];
+		const { spawned, prompts } = await setup({
+			permissionMode: "manual",
+			registered: { plugin: stdio("node", { env: { TOKEN: "!cat /secret/token" } }) },
+			answer: () => answers.shift(),
+		});
+		await vi.waitFor(() => expect(prompts).toHaveLength(2));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(spawned).toEqual([]);
+	});
+
+	it("does not ask about servers the user configured, or about HTTP servers an extension registered", async () => {
+		const configured: McpServerEntry = { name: "mine", config: stdio("node"), source: "mcp.json", scope: "global" };
+		const { prompts, spawned } = await setup({
+			permissionMode: "manual",
+			configured: [configured, { ...configured, name: "proj", scope: "project" }],
+			registered: { web: { url: "http://web.invalid" } },
+			answer: () => "Deny",
+		});
+		await vi.waitFor(() => expect([...spawned].sort()).toEqual(["mine", "proj", "web"]));
+		expect(prompts).toEqual([]);
+	});
+
+	it("is a no-op in unrestricted mode: no prompt, no audit entry", async () => {
+		const { harness, prompts, spawned } = await setup({ registered: { plugin: stdio("node") } });
+		await vi.waitFor(() => expect(spawned).toEqual(["plugin"]));
+		expect(prompts).toEqual([]);
+		expect(harness.session.permissions.audit.tail(5)).toEqual([]);
+	});
+
+	it("records the decision in the audit log with the extension as caller", async () => {
+		const { harness, prompts } = await setup({
+			permissionMode: "manual",
+			registered: { plugin: stdio("node") },
+			answer: () => "Deny",
+		});
+		await vi.waitFor(() => expect(prompts).toHaveLength(1));
+		expect(harness.session.permissions.audit.tail(1)[0]).toMatchObject({
+			toolName: "pi.exec",
+			caller: "<inline:1>",
+			decision: "deny",
+			source: "user",
+		});
 	});
 });

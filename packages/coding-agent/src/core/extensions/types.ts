@@ -1812,6 +1812,18 @@ export interface ExtensionAPI {
 	/** Execute a shell command. */
 	exec(command: string, args: string[], options?: ExecOptions): Promise<ExecResult>;
 
+	/**
+	 * Ask the permission gateway whether a process may be started, for code that spawns one without `pi.exec`.
+	 * Resolves when it may run and rejects with the reason when the gateway blocks it. With `permissionMode`
+	 * `"unrestricted"` it always resolves. It judges the command like `pi.exec` does; it starts nothing itself.
+	 * `onBehalfOf` names the extension shown at the prompt when you spawn for another extension.
+	 */
+	authorizeExec(
+		command: string,
+		args: string[],
+		options?: { cwd?: string; signal?: AbortSignal; onBehalfOf?: string },
+	): Promise<void>;
+
 	/** Get the names of the active tools, which are the tools declared to the model. */
 	getActiveTools(): string[];
 

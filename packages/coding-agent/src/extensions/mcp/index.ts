@@ -573,6 +573,16 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 				credentials: getCredentials(runtime),
 				providerToken: async (provider) => modelRegistry?.getApiKeyForProvider(provider),
 				log: getServerLog(runtime),
+				// Servers an extension registered start processes the user never configured, so the gateway judges them.
+				authorizeExec:
+					server.entry.scope === "extension"
+						? (command, args, cwd, shutdown) =>
+								pi.authorizeExec(command, args, {
+									cwd,
+									signal: AbortSignal.any([session.signal, shutdown]),
+									onBehalfOf: server.entry.source,
+								})
+						: undefined,
 				onTools: (connection) => {
 					if (isCurrent()) registerTools(connection);
 				},
@@ -685,6 +695,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 			const runtime = await loadMcpRuntime();
 			const signal = cancel ? AbortSignal.any([session.signal, cancel]) : session.signal;
 			try {
+				await connection.approveClientSecret();
 				await track(
 					runtime.signInMcpServer({
 						serverUrl: url,

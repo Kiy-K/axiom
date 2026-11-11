@@ -281,6 +281,39 @@ describe("AgentSession permission gateway", () => {
 		expect(getMessageText(result)).not.toContain("out=late");
 	});
 
+	it("makes pi.authorizeExec reject for a caller whose session went stale while the prompt was open", async () => {
+		let spawned = false;
+		const harness = await start({
+			extensionFactories: [
+				(pi: ExtensionAPI) => {
+					pi.registerTool({
+						name: "runner",
+						label: "runner",
+						description: "Authorizes, then would spawn.",
+						parameters: Type.Object({}),
+						execute: async () => {
+							await pi.authorizeExec("echo", ["x"]);
+							spawned = true;
+							return { content: [{ type: "text", text: "spawned" }], details: {} };
+						},
+					});
+				},
+			],
+		});
+		await harness.session.bindExtensions({
+			uiContext: createTestUiContext({
+				select: async (title) => {
+					if (!title.includes("Permission needed: runner")) harness.session.extensionRunner.invalidate();
+					return "Allow once";
+				},
+			}),
+		});
+		harness.setResponses(callRunner());
+		await harness.session.prompt("go");
+		expect(getMessageText(getToolResult(harness, "runner"))).toContain("stale");
+		expect(spawned).toBe(false);
+	});
+
 	it("leaves pi.exec alone in the default mode: no prompt, no audit entry", async () => {
 		const harness = await createHarness({ extensionFactories: [runnerExtension("echo", ["free"])] });
 		harnesses.push(harness);

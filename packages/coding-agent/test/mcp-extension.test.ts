@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { renderToolOutputType } from "@earendil-works/pi-codemode/declarations";
 import {
 	createMcpToolName,
@@ -11,9 +11,10 @@ import {
 	McpAuthRequiredError,
 	McpHttpError,
 	McpSessionExpiredError,
+	StdioTransport,
 } from "@earendil-works/pi-mcp";
 import { createInMemoryTransportPair, type InMemoryTransport } from "@earendil-works/pi-mcp/testing";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CONFIG_DIR_NAME } from "../src/config.ts";
 import { InMemoryAuthStorageBackend } from "../src/core/auth-storage.ts";
 import {
@@ -29,6 +30,7 @@ import {
 	McpOAuthCredentialStore,
 	McpServerConnection,
 	McpServerLog,
+	mcpLaunches,
 } from "../src/extensions/mcp/runtime.ts";
 import { convertMcpResult, createMcpResultSchema } from "../src/extensions/mcp/tools.ts";
 
@@ -854,5 +856,154 @@ describe("MCP servers section", () => {
 		expect(lines.at(-1)).toMatch(/^- … \d+ more servers; find their tools with searchTools\(\)$/);
 		const omitted = Number(/(\d+) more/.exec(lines.at(-1) ?? "")?.[1]);
 		expect(lines.length - 2 + omitted).toBe(200);
+	});
+});
+
+describe("MCP servers behind the permission gateway", () => {
+	const cwd = process.cwd();
+	const credentials = () => new McpOAuthCredentialStore(new InMemoryAuthStorageBackend());
+
+	it("lists the processes a stdio server starts, as the transport will start them, env first", () => {
+		const entry: McpServerEntry = {
+			name: "s",
+			source: "ext",
+			config: {
+				command: "~/bin/server",
+				args: ["~/data", "--x"],
+				cwd: "work",
+				env: { NODE_OPTIONS: "--require /tmp/x.js", TOKEN: "!cat /secret/token" },
+			},
+		};
+		expect(mcpLaunches(entry, cwd)).toEqual([
+			{
+				command: "env",
+				args: [
+					"NODE_OPTIONS=--require /tmp/x.js",
+					"TOKEN=!cat /secret/token",
+					join(homedir(), "bin/server"),
+					join(homedir(), "data"),
+					"--x",
+				],
+				cwd: resolve(cwd, "work"),
+			},
+			{ command: "sh", args: ["-c", "cat /secret/token"], cwd },
+		]);
+	});
+
+	it("spawns exactly the command, args, cwd and env the gateway is shown", () => {
+		const entry: McpServerEntry = {
+			name: "s",
+			source: "ext",
+			config: { command: "~/bin/server", args: ["~/data", "--x"], cwd: "work", env: { A: "b" } },
+		};
+		const transport = createDefaultTransport(entry, cwd, undefined);
+		if (!(transport instanceof StdioTransport)) throw new Error("expected a stdio transport");
+		const { command, args = [], cwd: spawnCwd, env } = transport.options;
+		// The gateway sees the env in front of the command; strip that wrapper and compare with what spawn gets.
+		expect(mcpLaunches(entry, cwd)[0]).toEqual({ command: "env", args: ["A=b", command, ...args], cwd: spawnCwd });
+		expect(env).toEqual({ A: "b" });
+	});
+
+	it("lists a !command header of an HTTP server, and nothing for a plain one", () => {
+		const plain: McpServerEntry = {
+			name: "h",
+			source: "ext",
+			config: { url: "http://x.invalid", headers: { A: "b" } },
+		};
+		expect(mcpLaunches(plain, cwd)).toEqual([]);
+		const withCommand: McpServerEntry = { ...plain, config: { url: "http://x.invalid", headers: { A: "!echo t" } } };
+		expect(mcpLaunches(withCommand, cwd)).toEqual([{ command: "sh", args: ["-c", "echo t"], cwd }]);
+	});
+
+	function gated(
+		entry: McpServerEntry,
+		authorizeExec?: ConstructorParameters<typeof McpServerConnection>[0]["authorizeExec"],
+	) {
+		const createTransport = vi.fn(() => {
+			throw new TypeError("network down");
+		});
+		const connection = new McpServerConnection({
+			entry,
+			cwd,
+			createTransport,
+			credentials: credentials(),
+			onTools: () => {},
+			authorizeExec,
+		});
+		return { connection, createTransport };
+	}
+
+	const oauthEntry = (clientSecret: string): McpServerEntry => ({
+		name: "o",
+		source: "ext",
+		config: { url: "http://x.invalid", oauth: { clientSecret } },
+	});
+
+	it("runs an OAuth client secret command only after approval, once per connection", async () => {
+		const authorize = vi.fn(async () => {});
+		const { connection } = gated(oauthEntry("!echo s3cret"), authorize);
+		// Token refresh calls oauthSettings() synchronously; it cannot ask, so an unapproved command must not run.
+		expect(() => connection.oauthSettings()).toThrow("was not approved");
+
+		await connection.approveClientSecret();
+		await connection.approveClientSecret();
+		expect(authorize).toHaveBeenCalledTimes(1);
+		expect(authorize).toHaveBeenCalledWith("sh", ["-c", "echo s3cret"], cwd, expect.any(AbortSignal));
+		expect(connection.oauthSettings().clientSecret).toBe("s3cret");
+		expect(connection.oauthSettings().clientSecret).toBe("s3cret");
+		expect(authorize).toHaveBeenCalledTimes(1);
+		await connection.close();
+	});
+
+	it("keeps an OAuth client secret command from running when it is denied", async () => {
+		const { connection } = gated(oauthEntry("!echo s3cret"), async () => {
+			throw new Error("Blocked: the user denied this action.");
+		});
+		await expect(connection.approveClientSecret()).rejects.toThrow("user denied");
+		expect(() => connection.oauthSettings()).toThrow("was not approved");
+		await connection.close();
+	});
+
+	it("resolves a client secret directly for an ungated server, as before", async () => {
+		const { connection } = gated(oauthEntry("!echo s3cret"));
+		expect(connection.oauthSettings().clientSecret).toBe("s3cret");
+		await connection.close();
+	});
+
+	it("asks once for a connect that retries, and starts nothing when the answer is no", async () => {
+		const entry: McpServerEntry = {
+			name: "h",
+			source: "ext",
+			config: { url: "http://x.invalid", headers: { A: "!echo t" } },
+		};
+		const authorize = vi.fn(async () => {});
+		const allowed = gated(entry, authorize);
+		await expect(allowed.connection.getClient()).rejects.toThrow("network down");
+		expect(authorize).toHaveBeenCalledTimes(1);
+		expect(allowed.createTransport).toHaveBeenCalledTimes(3); // The first attempt and two retries.
+
+		const denied = gated(entry, async () => {
+			throw new Error("Blocked: the user denied this action.");
+		});
+		await expect(denied.connection.getClient()).rejects.toThrow("user denied");
+		expect(denied.createTransport).not.toHaveBeenCalled();
+		expect(denied.connection.state).toBe("failed");
+	});
+
+	it("starts nothing when the server shuts down while the prompt is open", async () => {
+		const entry: McpServerEntry = {
+			name: "h",
+			source: "ext",
+			config: { url: "http://x.invalid", headers: { A: "!echo t" } },
+		};
+		const answer = Promise.withResolvers<void>();
+		const { connection, createTransport } = gated(entry, () => answer.promise);
+		const opening = connection.getClient();
+		opening.catch(() => undefined);
+		const closing = connection.close();
+		answer.resolve(); // The user says yes after the server was disabled.
+		await closing;
+		await expect(opening).rejects.toThrow();
+		expect(createTransport).not.toHaveBeenCalled();
 	});
 });

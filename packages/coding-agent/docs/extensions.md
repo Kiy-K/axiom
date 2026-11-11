@@ -1907,6 +1907,19 @@ Options: `signal` and `timeout` terminate the command, `cwd` sets the working di
 
 With `permissionMode: "manual"`, `pi.exec` goes through the permission gateway as the shell line `command args` (preceded by `cd <cwd> &&` when `cwd` is not the session directory). Every call asks the user, including calls from event handlers and slash commands; the prompt names your extension. With no UI bound (print mode) a call is denied. A command longer than 2000 characters once quoted is denied without a prompt, so pass large input through a file or stdin-free means rather than an argument. A blocked call rejects with the reason (unlike other `pi.exec` failures, which resolve with a nonzero `code`), so `await` it inside `try`/`catch` or add `.catch()`; a call you do not handle can end as an unhandled rejection. Exception: a caller whose `signal` has aborted gets a result with `killed: true`. Calls made while the extension factory loads run before the gateway is bound and are not checked. See [permission gateway](../../../docs/axiom/permissions.md).
 
+### pi.authorizeExec(command, args, options?)
+
+Ask the permission gateway whether a process may be started, for code that spawns one without `pi.exec`, for example an extension that runs its own MCP stdio server or helper daemon. It starts nothing: it resolves when the user (or policy) allows the command and rejects with the reason when it is blocked. Call it before you spawn, and spawn only after it resolves.
+
+```typescript
+await pi.authorizeExec("my-daemon", ["--port", "4000"], { cwd: projectDir, signal });
+const child = spawn("my-daemon", ["--port", "4000"], { cwd: projectDir });
+```
+
+Options: `cwd` (default: the session directory), `signal`, and `onBehalfOf`, the extension path shown at the prompt when you spawn for another extension (it is not authenticated: any extension can name any path). The command is judged exactly like `pi.exec`, so pass the same `command`, `args` and `cwd` you spawn with; a call that spawns something else defeats the check. It rejects if the session was reloaded or replaced while the prompt was open, so do not spawn after a rejection. With `permissionMode: "unrestricted"` it always resolves. It is cooperative: an extension that does not call it can still use `node:child_process` (see [permission gateway](../../../docs/axiom/permissions.md)).
+
+axiom's built-in MCP integration calls it for the processes a server registered with `pi.registerMcpServer()` starts: the stdio command (with its `env` shown in front as `env KEY=value command`, because `PATH` and `NODE_OPTIONS` change what runs), each `!command` value in `env` or `headers`, and the `!command` of `oauth.clientSecret`. It asks once for each connection attempt, before anything starts, so a flaky HTTP server does not ask again on each retry; a server that reconnects later (for example after a stdio process exits) asks again. A server with several `!command` values asks several times in a row. The client secret is resolved once and kept for the connection, so one approval covers its token refreshes. Servers from `mcp.json` are not asked about.
+
 ### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
 
 Manage active tools. This works for both built-in tools and dynamically registered tools. `pi.getActiveTools()` returns the active tool names as `string[]`; `pi.getAllTools()` returns metadata for all configured tools.
