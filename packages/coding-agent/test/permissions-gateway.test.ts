@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PermissionGateway, type PermissionPrompter } from "../src/core/permissions/gateway.ts";
 import type { PermissionMode } from "../src/core/permissions/types.ts";
+import { allToolNames } from "../src/core/tools/index.ts";
 
 interface Asked {
 	title: string;
@@ -237,6 +238,14 @@ describe("PermissionGateway", () => {
 		expect(asked[1].title).not.toContain("\x1b");
 		expect(asked[1].title.split("\n").filter((line) => line.startsWith("Extension:"))).toHaveLength(1);
 		expect(gateway.audit.tail(1)[0].caller).not.toContain("\x1b");
+	});
+
+	it("never allows a built-in tool called with an empty input, so a new tool needs a policy row", async () => {
+		const gateway = make();
+		hasPrompter = false; // Anything that needs approval is then a denial; only an outright allow returns undefined.
+		for (const name of allToolNames) {
+			expect((await gateway.authorize(call(name, {})))?.block, name).toBe(true);
+		}
 	});
 
 	it("asks once per tool whose effects it cannot see", async () => {
