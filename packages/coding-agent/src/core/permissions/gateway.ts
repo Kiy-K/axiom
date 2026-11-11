@@ -1,5 +1,6 @@
 // The permission gateway: one decision point every tool call passes before it executes.
 
+import { resolve } from "node:path";
 import { type AuditEntry, AuditLog, type DecisionSource } from "./audit.ts";
 import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
@@ -34,6 +35,21 @@ export interface PermissionBlock {
 	reason: string;
 }
 
+/** Where and for whom an extension's `pi.exec` runs. */
+export interface ExecRequest {
+	/** Directory the command runs in. */
+	cwd: string;
+	/** Path of the extension that calls `pi.exec`, shown in the prompt and written to the audit entry. */
+	extensionPath: string;
+	signal?: AbortSignal;
+}
+
+/** What identifies a call in prompts and audit entries. */
+type CallLabel = Pick<ToolCallRequest, "toolName" | "toolCallId" | "parentToolCallId"> & {
+	/** Path of the extension that makes the call itself. */
+	caller?: string;
+};
+
 export interface ToolCallRequest {
 	toolName: string;
 	toolCallId: string;
@@ -48,6 +64,9 @@ const ALLOW_ONCE = "Allow once";
 const DENY = "Deny";
 /** Long enough for any command the policy lets through, so a prompt or log entry never hides part of one. */
 const MAX_DETAIL_CHARS = MAX_COMMAND_CHARS;
+
+/** Longest extension path shown in a prompt or written to the log. */
+const MAX_CALLER_CHARS = 120;
 
 /** One line, so a command with newlines cannot fake extra lines in a prompt or log entry. */
 function clean(text: string, maxLength: number): string {
@@ -75,11 +94,28 @@ export class PermissionGateway {
 	async authorize(call: ToolCallRequest, signal?: AbortSignal): Promise<PermissionBlock | undefined> {
 		if (this.mode === "unrestricted") return undefined;
 		try {
-			return await this.decide(call, signal);
+			return await this.decide(call, actionsForToolCall(call.toolName, call.input, this.options.getCwd()), signal);
 		} catch (error) {
-			const reason = `Permission check failed: ${error instanceof Error ? error.message : String(error)}`;
-			this.record(call, "deny", "error", reason);
-			return { block: true, reason: clean(reason, MAX_DETAIL_CHARS) };
+			return this.blockOnError(call, error);
+		}
+	}
+
+	/**
+	 * Decide a command an extension runs with `pi.exec`. It is judged as the shell line it amounts to (preceded by
+	 * `cd <dir> &&` when it runs outside the session directory), so it has the same rules and grants as a model `bash`
+	 * call. The prompt and the audit entry name the extension that asks.
+	 */
+	async authorizeExec(command: string, args: string[], request: ExecRequest): Promise<PermissionBlock | undefined> {
+		if (this.mode === "unrestricted") return undefined;
+		const call = { toolName: "pi.exec", toolCallId: "", caller: request.extensionPath };
+		try {
+			const line = shellLine(command, args);
+			// spawn resolves a relative cwd against the process directory, so the judged line does the same.
+			const dir = resolve(request.cwd);
+			const shell = dir === resolve(this.options.getCwd()) ? line : `${shellLine("cd", [dir])} && ${line}`;
+			return await this.decide(call, [execAction(shell)], request.signal);
+		} catch (error) {
+			return this.blockOnError(call, error);
 		}
 	}
 
@@ -90,8 +126,17 @@ export class PermissionGateway {
 		this.record({ toolName: "user-bash", toolCallId: "" }, "allow", "user-command", describe(action));
 	}
 
-	private async decide(call: ToolCallRequest, signal: AbortSignal | undefined): Promise<PermissionBlock | undefined> {
-		const actions = actionsForToolCall(call.toolName, call.input, this.options.getCwd());
+	private blockOnError(call: CallLabel, error: unknown): PermissionBlock {
+		const reason = `Permission check failed: ${error instanceof Error ? error.message : String(error)}`;
+		this.record(call, "deny", "error", reason);
+		return { block: true, reason: clean(reason, MAX_DETAIL_CHARS) };
+	}
+
+	private async decide(
+		call: CallLabel,
+		actions: Action[],
+		signal: AbortSignal | undefined,
+	): Promise<PermissionBlock | undefined> {
 		const verdicts = actions.map((action) => ({ action, verdict: judgeAction(action) }));
 		const summary = actions.map(describe).join("; ") || "no direct effect";
 
@@ -122,7 +167,8 @@ export class PermissionGateway {
 			? `Allow for ${GRANT_TTL_MS / 60000} minutes: ${grantScopes.map(describeGrantScope).join(", ")}`
 			: undefined;
 		const choices = [ALLOW_ONCE, ...(grantLabel ? [grantLabel] : []), DENY];
-		const title = `Permission needed: ${show(call.toolName, 100)}\n${pending.map(promptLine).join("\n")}`;
+		const asker = call.caller === undefined ? "" : `\nExtension: ${showTail(call.caller, MAX_CALLER_CHARS)}`;
+		const title = `Permission needed: ${show(call.toolName, 100)}${asker}\n${pending.map(promptLine).join("\n")}`;
 
 		const choice = await this.ask(prompter, title, choices, signal);
 		if (choice === undefined) {
@@ -171,17 +217,12 @@ export class PermissionGateway {
 		}
 	}
 
-	private record(
-		call: Pick<ToolCallRequest, "toolName" | "toolCallId" | "parentToolCallId">,
-		decision: Decision,
-		source: DecisionSource,
-		detail: string,
-		grantId?: string,
-	): void {
+	private record(call: CallLabel, decision: Decision, source: DecisionSource, detail: string, grantId?: string): void {
 		const entry: AuditEntry = {
 			time: Date.now(),
 			sessionId: this.options.getSessionId(),
-			toolName: call.toolName,
+			toolName: clean(call.toolName, 200),
+			...(call.caller === undefined ? {} : { caller: clean(call.caller, MAX_DETAIL_CHARS) }),
 			...(call.toolCallId ? { toolCallId: call.toolCallId } : {}),
 			...(call.parentToolCallId ? { parentToolCallId: call.parentToolCallId } : {}),
 			decision,
@@ -191,6 +232,19 @@ export class PermissionGateway {
 		};
 		this.audit.record(entry, this.options.onWarning);
 	}
+}
+
+/** Sanitized text cut from the front, so the end of a path (the file that tells extensions apart) stays visible. */
+function showTail(text: string, maxLength: number): string {
+	const line = show(text, 4 * maxLength);
+	return line.length <= maxLength ? line : `...${line.slice(-(maxLength - 3))}`;
+}
+
+/** The command and arguments as one shell line, quoted so the policy reads each argument as one word. */
+function shellLine(command: string, args: string[]): string {
+	return [command, ...args]
+		.map((word) => (/^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, "'\\''")}'`))
+		.join(" ");
 }
 
 /**

@@ -3646,6 +3646,10 @@ export class AgentSession {
 				},
 				getThinkingLevel: () => this.thinkingLevel,
 				setThinkingLevel: (level) => this.setThinkingLevel(level),
+				authorizeExec: async (command, args, request) => {
+					const blocked = await this._permissions.authorizeExec(command, args, request);
+					if (blocked) throw new Error(blocked.reason);
+				},
 			},
 			{
 				getModel: () => this.model,

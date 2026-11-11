@@ -6907,7 +6907,8 @@ export class InteractiveMode {
 			const recent = permissions.audit
 				.tail(10)
 				.map(
-					(entry) => `  ${entry.decision.padEnd(5)} ${entry.source.padEnd(12)} ${entry.toolName}: ${entry.detail}`,
+					(entry) =>
+						`  ${entry.decision.padEnd(5)} ${entry.source.padEnd(12)} ${entry.toolName}${entry.caller === undefined ? "" : ` [${entry.caller}]`}: ${entry.detail}`,
 				);
 			text = [
 				`Permission mode: ${permissions.mode}${permissions.mode === "unrestricted" ? ' (gateway off; set permissionMode to "manual" in settings)' : ""}`,

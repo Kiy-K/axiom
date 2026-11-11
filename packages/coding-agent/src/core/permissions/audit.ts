@@ -23,6 +23,8 @@ export interface AuditEntry {
 	toolName: string;
 	toolCallId?: string;
 	parentToolCallId?: string;
+	/** Sanitized path of the extension that asked, for calls an extension makes itself (`pi.exec`). */
+	caller?: string;
 	decision: Decision;
 	source: DecisionSource;
 	/** Sanitized one-line description of the effects and the reason. */

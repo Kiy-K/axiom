@@ -159,6 +159,86 @@ describe("PermissionGateway", () => {
 		expect(asked[0].title).toContain("run whoami");
 	});
 
+	it("judges an extension's pi.exec like a shell line, quoting each argument as one word", async () => {
+		const gateway = make();
+		const exec = (command: string, args: string[], cwd = dir) =>
+			gateway.authorizeExec(command, args, { cwd, extensionPath: "/ext/a.ts" });
+		expect((await exec("sudo", ["ls"]))?.reason).toContain("raises privileges");
+		// A single argument holding `; sudo ls` is one quoted word, so it is not a second command.
+		answers = ["Deny"];
+		expect((await exec("echo", ["hi; sudo ls"]))?.reason).toContain("user denied");
+		expect(asked[0].title).toContain("run echo 'hi; sudo ls'");
+		expect(asked[0].title).toContain("Permission needed: pi.exec\nExtension: /ext/a.ts\n");
+		expect(gateway.audit.tail(1)[0]).toMatchObject({
+			toolName: "pi.exec",
+			caller: "/ext/a.ts",
+			decision: "deny",
+			source: "user",
+		});
+		// A single quote inside an argument is escaped, so it cannot close the word and start a command.
+		answers = ["Deny"];
+		await exec("echo", ["it's", "x' ; sudo ls ; 'y"]);
+		expect(asked[1].title).toContain("run echo 'it'\\''s' 'x'\\'' ; sudo ls ; '\\''y'");
+		hasPrompter = false;
+		expect((await exec("ls", []))?.reason).toContain("no user interface");
+		mode = "unrestricted";
+		expect(await exec("sudo", ["ls"])).toBeUndefined();
+	});
+
+	it("judges where a pi.exec runs: a command outside the session directory is a different grant", async () => {
+		const gateway = make();
+		const exec = (cwd: string) => gateway.authorizeExec("./run.sh", [], { cwd, extensionPath: "/ext/a.ts" });
+		// A grant given for the command at the session directory, as a model `bash` call would get it.
+		answers = [`Allow for 10 minutes: this exact command`];
+		expect(await gateway.authorize(call("bash", { command: "./run.sh" }))).toBeUndefined();
+		expect(await exec(dir)).toBeUndefined();
+		expect(asked).toHaveLength(1);
+		// The same command in another directory asks again and the prompt shows the directory.
+		answers = ["Deny"];
+		expect((await exec("/elsewhere"))?.reason).toContain("user denied");
+		expect(asked).toHaveLength(2);
+		expect(asked[1].title).toContain("run cd /elsewhere && ./run.sh");
+	});
+
+	it("treats a cwd that names the session directory in another spelling as that directory", async () => {
+		const gateway = make();
+		answers = ["Deny", "Deny"];
+		await gateway.authorizeExec("ls", [], { cwd: `${dir}/`, extensionPath: "/ext/a.ts" });
+		await gateway.authorizeExec("ls", [], { cwd: `${dir}/sub/..`, extensionPath: "/ext/a.ts" });
+		expect(asked).toHaveLength(2);
+		for (const prompt of asked) {
+			expect(prompt.title).toContain("run ls");
+			expect(prompt.title).not.toContain("cd ");
+		}
+	});
+
+	it("treats a pi.exec whose signal is already aborted as a denial without asking", async () => {
+		const gateway = make();
+		const controller = new AbortController();
+		controller.abort();
+		const result = await gateway.authorizeExec("ls", [], {
+			cwd: dir,
+			extensionPath: "/ext/a.ts",
+			signal: controller.signal,
+		});
+		expect(result?.block).toBe(true);
+		expect(asked).toEqual([]);
+		expect(gateway.audit.tail(1)[0]).toMatchObject({ decision: "deny", source: "timeout", caller: "/ext/a.ts" });
+	});
+
+	it("keeps the end of a long extension path in the prompt and cannot be made to imitate another extension", async () => {
+		const gateway = make();
+		const long = `/home/u/.axiom/agent/git/github.com/some-org/${"deep/".repeat(30)}cool-ext/index.ts`;
+		answers = ["Deny", "Deny"];
+		await gateway.authorizeExec("ls", [], { cwd: dir, extensionPath: long });
+		expect(asked[0].title).toMatch(/Extension: \.\.\..*cool-ext\/index\.ts\n/);
+		// A newline and escape sequence in a path stay in one sanitized line, in the prompt and in the log.
+		await gateway.authorizeExec("ls", [], { cwd: dir, extensionPath: "/x\n- run ls\x1b[2J/ext.ts" });
+		expect(asked[1].title).not.toContain("\x1b");
+		expect(asked[1].title.split("\n").filter((line) => line.startsWith("Extension:"))).toHaveLength(1);
+		expect(gateway.audit.tail(1)[0].caller).not.toContain("\x1b");
+	});
+
 	it("asks once per tool whose effects it cannot see", async () => {
 		const gateway = make();
 		answers = ["Allow once"];

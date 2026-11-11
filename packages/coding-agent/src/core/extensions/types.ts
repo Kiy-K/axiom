@@ -69,6 +69,7 @@ import type { McpServerConfig, McpServerRegistry, RegisteredMcpServer } from "..
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { ExecRequest } from "../permissions/gateway.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -2194,6 +2195,9 @@ export type GetThinkingLevelHandler = () => ThinkingLevel;
 
 export type SetThinkingLevelHandler = (level: ThinkingLevel) => void;
 
+/** Resolves when `pi.exec` may run the command, rejects with the reason when the permission gateway blocks it. */
+export type AuthorizeExecHandler = (command: string, args: string[], request: ExecRequest) => Promise<void>;
+
 export type SetLabelHandler = (entryId: string, label: string | undefined) => void;
 
 /**
@@ -2251,6 +2255,7 @@ export interface ExtensionActions {
 	setModel: SetModelHandler;
 	getThinkingLevel: GetThinkingLevelHandler;
 	setThinkingLevel: SetThinkingLevelHandler;
+	authorizeExec: AuthorizeExecHandler;
 }
 
 /**

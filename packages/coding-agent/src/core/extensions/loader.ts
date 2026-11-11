@@ -14,7 +14,7 @@ import type { createJiti } from "jiti";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { canonicalizePath, pathsEqual, resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
-import type { ExecOptions } from "../exec.ts";
+import type { ExecOptions, ExecResult } from "../exec.ts";
 import { execCommand } from "../exec.ts";
 import { type McpServerConfig, McpServerRegistry, validateMcpServerConfig } from "../mcp-servers.ts";
 import { readPiManifest } from "../pi-manifest.ts";
@@ -190,6 +190,8 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		setModel: () => Promise.reject(new Error("Extension runtime not initialized")),
 		getThinkingLevel: notInitialized,
 		setThinkingLevel: notInitialized,
+		// Allowed until the session binds its gateway: factories run before that, and extension code is not mediated.
+		authorizeExec: async () => {},
 		flagValues: new Map(),
 		pendingProviderRegistrations: [],
 		pendingNativeProviderRegistrations: [],
@@ -422,7 +424,22 @@ function createExtensionAPI(
 
 		exec(command: string, args: string[], options?: ExecOptions) {
 			assertActive();
-			return execCommand(command, args, options?.cwd ?? cwd, options);
+			const request = { cwd: options?.cwd ?? cwd, extensionPath: extension.path, signal: options?.signal };
+			// `args` is optional in untyped extension code: extension JS is a trust boundary, and spawn accepts no args.
+			// One list is judged and run, so the gateway sees exactly what spawn gets.
+			const argv = args ?? [];
+			return runtime.authorizeExec(command, argv, request).then(
+				() => {
+					// The prompt may have been open while the session was reloaded or replaced.
+					assertActive();
+					return execCommand(command, argv, request.cwd, options);
+				},
+				(error: unknown): ExecResult => {
+					// A caller that aborted gets the result of an aborted command; the blocked command was never started.
+					if (options?.signal?.aborted) return { stdout: "", stderr: "", code: 1, killed: true, truncated: false };
+					throw error;
+				},
+			);
 		},
 
 		getActiveTools(): string[] {
