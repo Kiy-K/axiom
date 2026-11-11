@@ -14,6 +14,13 @@ describe("LogBuffer", () => {
 		expect(log.read(second.cursor, 100).text).toBe("");
 	});
 
+	it("removes DEL and C1 controls, including 8-bit CSI, and keeps neighbouring characters whole", () => {
+		const log = new LogBuffer();
+		// U+009B is the 8-bit CSI; U+0085 and U+009F are other C1 controls. "é" (U+00E9) and "€" sit just outside the range.
+		log.append(Buffer.from("a\u009b2Jb\x7fc\u0085d\u009fé€\n"));
+		expect(log.read(undefined, 100).text).toBe("a2Jbcdé€\n");
+	});
+
 	it("reports bytes lost to the retention window for a stale cursor", () => {
 		const log = new LogBuffer();
 		log.append(Buffer.alloc(LOG_RETAINED_BYTES, "a"));

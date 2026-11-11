@@ -34,6 +34,7 @@
 
 ### Fixed
 
+- Fixed `job output` and the output shown when a command moves to the background passing DEL and C1 control characters (including the 8-bit CSI `U+009B`) through; they are now removed with the C0 controls.
 - Fixed the Linux process helper remaining blocked on a cleanup confirmation when its output pipe is full. Cleanup that cannot be confirmed still retains its crash record where available.
 - Fixed a stop or timeout hanging when the native process helper never reported its spawn: the helper is now killed 5 seconds after the request.
 - Fixed commands running unowned after a terminal hangup, Ctrl+C or a signal to Axiom's process group: the native process helper now survives SIGHUP, SIGINT and SIGTERM and ends its command when Axiom disconnects.
