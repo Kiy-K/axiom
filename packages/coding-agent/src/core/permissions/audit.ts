@@ -1,11 +1,14 @@
 // Record of every gateway decision: a bounded in-memory tail plus an append-only JSONL file.
 
-import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Decision } from "./types.ts";
 
 /** Entries kept in memory for `/permissions` and tests. */
 const MAX_MEMORY_ENTRIES = 200;
+
+/** The file is moved to `<file>.1` once it holds this many bytes; one older generation is kept. */
+export const AUDIT_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Who produced the decision. */
 export type DecisionSource =
@@ -35,9 +38,11 @@ export interface AuditEntry {
 export class AuditLog {
 	private readonly entries: AuditEntry[] = [];
 	private readonly filePath: string | undefined;
+	private readonly maxBytes: number;
 
-	constructor(filePath?: string) {
+	constructor(filePath?: string, maxBytes = AUDIT_MAX_BYTES) {
 		this.filePath = filePath;
+		this.maxBytes = maxBytes;
 	}
 
 	/** Append an entry. A file write failure is reported through `onError` and never changes the decision. */
@@ -47,10 +52,30 @@ export class AuditLog {
 		if (this.filePath === undefined) return;
 		try {
 			mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
+			this.rotateIfFull(this.filePath, onError);
 			appendFileSync(this.filePath, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 			chmodSync(this.filePath, 0o600);
 		} catch (error) {
 			onError?.(`Permission audit log write failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	/**
+	 * Move a full file over `<file>.1`. The size is read on every write, not counted in memory: sessions share this
+	 * file, so a private count would drift. A failed rotation is reported and the entry is still appended.
+	 */
+	private rotateIfFull(file: string, onError?: (message: string) => void): void {
+		let size: number;
+		try {
+			size = statSync(file).size;
+		} catch {
+			return; // No file yet.
+		}
+		if (size < this.maxBytes) return;
+		try {
+			renameSync(file, `${file}.1`);
+		} catch (error) {
+			onError?.(`Permission audit log rotation failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
