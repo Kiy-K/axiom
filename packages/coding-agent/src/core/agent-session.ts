@@ -143,6 +143,7 @@ import {
 	applyToolModifiers,
 	type CacheWarmingMode,
 	DEFAULT_TOOL_NAMES,
+	type EditMode,
 	type SettingsManager,
 } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
@@ -454,6 +455,7 @@ export class AgentSession {
 		getCwd: () => this.sessionManager.getCwd(),
 		getSessionId: () => this.sessionId,
 		getPrompter: () => (this._extensionRunner.hasUI() ? this._extensionRunner.getUIContext() : undefined),
+		canRequestEditTrust: () => this._extensionMode === "tui" && process.env.CI === undefined,
 		auditFile: join(getAgentDir(), "audit", "permissions.jsonl"),
 		onWarning: (error) => this._extensionRunner.emitError({ extensionPath: "<permissions>", event: "audit", error }),
 	});
@@ -528,6 +530,7 @@ export class AgentSession {
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
+	private readonly _builtinEditTools = new WeakMap<AgentTool, EditMode>();
 	/** Created on the first `ctx.executeTool()` call. */
 	private _nestedToolCalls: NestedToolCallRunner | undefined;
 	/** Declared tools whose declarations requests leave out, from `prepareLoadout` hooks. */
@@ -730,7 +733,7 @@ export class AgentSession {
 
 	/** `tool_call` handlers. `parentToolCallId` is set for calls another tool made. */
 	private async _beforeToolCall(
-		{ toolCall, args }: BeforeToolCallContext,
+		{ toolCall, tool, args }: BeforeToolCallContext,
 		parentToolCallId?: string,
 		signal?: AbortSignal,
 	): Promise<BeforeToolCallResult | undefined> {
@@ -757,7 +760,13 @@ export class AgentSession {
 
 		// Last, so the gateway judges the input as the tool will receive it, after handlers may have changed it.
 		return this._permissions.authorize(
-			{ toolName: toolCall.name, toolCallId: toolCall.id, parentToolCallId, input },
+			{
+				toolName: toolCall.name,
+				toolCallId: toolCall.id,
+				parentToolCallId,
+				input,
+				builtinEdit: this._builtinEditTools.get(tool),
+			},
 			signal,
 		);
 	}
@@ -767,6 +776,7 @@ export class AgentSession {
 		{ toolCall, args, result, isError }: AfterToolCallContext,
 		parentToolCallId?: string,
 	): Promise<AfterToolCallResult | undefined> {
+		this._permissions.finishToolCall(toolCall.id, args);
 		const runner = this._extensionRunner;
 		const hookResult = runner.hasHandlers("tool_result")
 			? await runner.emitToolResult({
@@ -1199,6 +1209,8 @@ export class AgentSession {
 				this._nestedToolCalls.clear();
 			}
 		}
+		if (event.type === "tool_execution_start") this._permissions.startToolCall(event.toolCallId);
+		if (event.type === "tool_execution_end") this._permissions.endToolCall(event.toolCallId);
 		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
@@ -1378,6 +1390,7 @@ export class AgentSession {
 			return;
 		}
 
+		// SAFETY: AgentMessage is a plain mutable object, replaced in place to preserve its identity.
 		const targetRecord = target as unknown as Record<string, unknown>;
 		for (const key of Object.keys(targetRecord)) {
 			delete targetRecord[key];
@@ -3791,6 +3804,10 @@ export class AgentSession {
 		);
 
 		const toolRegistry = new Map(wrappedBuiltInTools.map((tool) => [tool.name, tool]));
+		if (!this._baseToolsOverride) {
+			const edit = toolRegistry.get("edit");
+			if (edit) this._builtinEditTools.set(edit, this.settingsManager.getEditMode());
+		}
 		for (const tool of wrappedExtensionTools as AgentTool[]) {
 			toolRegistry.set(tool.name, tool);
 		}

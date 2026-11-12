@@ -28,7 +28,7 @@ export const SETTINGS_DEFAULTS = {
 	showCacheMissNotices: false,
 	quietStartup: false,
 	defaultProjectTrust: "ask",
-	permissionMode: "unrestricted",
+	permissionMode: "yolo",
 	collapseChangelog: false,
 	enableInstallTelemetry: true,
 	enableAnalytics: false,

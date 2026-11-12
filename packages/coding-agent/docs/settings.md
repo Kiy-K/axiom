@@ -33,7 +33,7 @@ See [Choose a Model](models.md) for model selection and thinking controls.
 | `externalEditor` | string | `$VISUAL`, `$EDITOR`, then platform default | Command opened by the external-editor keybinding. |
 | `doubleEscapeAction` | `"tree" \| "fork" \| "none"` | `"tree"` | Action for double Escape with an empty editor. |
 | `treeFilterMode` | `"default" \| "no-tools" \| "user-only" \| "labeled-only" \| "all"` | `"default"` | Initial filter used by `/tree`. |
-| `permissionMode` | `"unrestricted" \| "manual"` | `"unrestricted"` | Permission gateway mode; see [security](security.md). **Can only be set in agent-directory settings.** |
+| `permissionMode` | `"yolo" \| "manual" \| "accept-edits"` | `"yolo"` | Permission gateway mode; `accept-edits` requires session trust and a clean Git worktree for automatic edits. See [security](security.md). **Can only be set in agent-directory settings.** |
 | `defaultProjectTrust` | `"ask" \| "always" \| "never"` | `"ask"` | Fallback project-trust behavior. **Can only be set in agent-directory settings.** |
 
 ## Tools

@@ -1426,7 +1426,7 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 		expect(prompts).toEqual([]);
 	});
 
-	it("is a no-op in unrestricted mode: no prompt, no audit entry", async () => {
+	it("is a no-op in yolo mode: no prompt, no audit entry", async () => {
 		const { harness, prompts, spawned } = await setup({ registered: { plugin: stdio("node") } });
 		await vi.waitFor(() => expect(spawned).toEqual(["plugin"]));
 		expect(prompts).toEqual([]);

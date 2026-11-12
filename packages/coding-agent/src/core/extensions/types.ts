@@ -1815,7 +1815,7 @@ export interface ExtensionAPI {
 	/**
 	 * Ask the permission gateway whether a process may be started, for code that spawns one without `pi.exec`.
 	 * Resolves when it may run and rejects with the reason when the gateway blocks it. With `permissionMode`
-	 * `"unrestricted"` it always resolves. It judges the command like `pi.exec` does; it starts nothing itself.
+	 * `"yolo"` it always resolves. It judges the command like `pi.exec` does; it starts nothing itself.
 	 * `onBehalfOf` names the extension shown at the prompt when you spawn for another extension.
 	 */
 	authorizeExec(

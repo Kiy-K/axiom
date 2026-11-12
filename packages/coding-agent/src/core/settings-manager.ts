@@ -160,6 +160,9 @@ function parseTimeoutSetting(value: unknown, settingName: string): number | unde
 
 export type SettingsScope = "global" | "project";
 
+/** Which edit tool schema the session exposes. */
+export type EditMode = "replace" | "hashline";
+
 export interface SettingsManagerCreateOptions {
 	projectTrusted?: boolean;
 }
@@ -1034,7 +1037,7 @@ export class SettingsManager {
 		if (this.globalSettingsLoadError) return "manual";
 		const value = this.globalSettings.permissionMode;
 		if (value === undefined) return SETTINGS_DEFAULTS.permissionMode;
-		return value === "unrestricted" ? "unrestricted" : "manual";
+		return value === "yolo" || value === "accept-edits" ? value : "manual";
 	}
 
 	setPermissionMode(mode: PermissionModeSetting): void {
@@ -1397,7 +1400,7 @@ export class SettingsManager {
 		return mode && valid.includes(mode) ? mode : SETTINGS_DEFAULTS.treeFilterMode;
 	}
 
-	getEditMode(): "replace" | "hashline" {
+	getEditMode(): EditMode {
 		return this.settings.editMode ?? SETTINGS_DEFAULTS.editMode;
 	}
 

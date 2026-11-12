@@ -25,6 +25,7 @@ function createSession(options: {
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
 	usingSubscription?: boolean;
+	editTrustActive?: boolean;
 	routedModel?: { model: { id: string }; thinkingLevel?: string };
 }): AgentSession {
 	const usage = options.usage;
@@ -83,6 +84,7 @@ function createSession(options: {
 			getCwd: () => "/tmp/project",
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		permissions: { editTrustActive: options.editTrustActive ?? false },
 		routedModel: options.routedModel,
 		modelRuntime: {
 			isUsingSubscription: () => options.usingSubscription ?? false,
@@ -120,6 +122,17 @@ describe("formatCwdForFooter", () => {
 describe("FooterComponent width handling", () => {
 	beforeAll(() => {
 		initTheme(undefined, false);
+	});
+
+	// Issue #1: automatic edits must be visible while trust is active.
+	it("shows active edit trust and hides it otherwise", () => {
+		const trusted = new FooterComponent(
+			createSession({ sessionName: "", editTrustActive: true }),
+			createFooterData(1),
+		);
+		const plain = new FooterComponent(createSession({ sessionName: "" }), createFooterData(1));
+		expect(stripAnsi(trusted.render(100).join("\n"))).toContain("edits trusted");
+		expect(stripAnsi(plain.render(100).join("\n"))).not.toContain("edits trusted");
 	});
 
 	it("keeps all lines within width for wide session names", () => {

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added the selected tool to `beforeToolCall` context for identity-aware authorization ([#1](https://github.com/Kiy-K/axiom/issues/1)).
+
 ### Breaking Changes
 
 - Requires Node 26 or newer (`engines.node` is `>=26.0.0`); earlier Node versions are no longer supported.

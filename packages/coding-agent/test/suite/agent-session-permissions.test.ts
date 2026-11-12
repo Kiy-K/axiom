@@ -606,7 +606,7 @@ describe("AgentSession permission gateway and provider !command values", () => {
 		expect(denied.prompts).toHaveLength(2);
 	});
 
-	it("is a no-op in unrestricted mode: the commands run, with no prompt and no audit entry", async () => {
+	it("is a no-op in yolo mode: the commands run, with no prompt and no audit entry", async () => {
 		const { harness, prompts, runtime } = await setup({
 			manual: false,
 			provider: acme({ apiKey: touching("key", "keyval") }),

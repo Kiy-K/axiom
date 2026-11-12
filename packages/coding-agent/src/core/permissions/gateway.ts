@@ -1,9 +1,14 @@
 // The permission gateway: one decision point every tool call passes before it executes.
 
+import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { EditMode } from "../settings-manager.ts";
+import { MAX_HASHLINE_BYTES } from "../tools/hashline.ts";
 import { type AuditEntry, AuditLog, type DecisionSource } from "./audit.ts";
+import { editLeavesContent } from "./edit-content.ts";
 import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
+import { isRecoverableEdit } from "./recoverable-edit.ts";
 import { sanitizeForDisplay as sanitize, sanitizeForPrompt as show } from "./redact.ts";
 import type { Action, ActionVerdict, Decision, GrantScope, PermissionMode } from "./types.ts";
 
@@ -22,6 +27,8 @@ export interface PermissionGatewayOptions {
 	getSessionId: () => string;
 	/** Undefined when nobody can be asked (print mode, no UI bound): an `ask` then becomes a denial. */
 	getPrompter: () => PermissionPrompter | undefined;
+	/** Only a fresh interactive session can request edit trust. */
+	canRequestEditTrust?: () => boolean;
 	/** Where decisions are appended as JSONL. Omit to keep them in memory only. */
 	auditFile?: string;
 	onWarning?: (message: string) => void;
@@ -53,6 +60,8 @@ type CallLabel = Pick<ToolCallRequest, "toolName" | "toolCallId" | "parentToolCa
 export interface ToolCallRequest {
 	toolName: string;
 	toolCallId: string;
+	/** Set only when the session selected its own built-in edit tool; names the schema that tool validates. */
+	builtinEdit?: EditMode;
 	parentToolCallId?: string;
 	input: Record<string, unknown>;
 }
@@ -77,6 +86,10 @@ export class PermissionGateway {
 	readonly grants = new GrantStore();
 	readonly audit: AuditLog;
 	private readonly options: PermissionGatewayOptions;
+	private editTrust?: { workspace: string; sessionId: string; accepted: boolean };
+	private editReservation?: { id: string; input: Record<string, unknown> };
+	// Started and not yet ended calls per id: a provider may reuse an id, and the first end must not free the other call.
+	private readonly running = new Map<string, number>();
 
 	constructor(options: PermissionGatewayOptions) {
 		this.options = options;
@@ -87,14 +100,32 @@ export class PermissionGateway {
 		return this.options.getMode();
 	}
 
+	get editTrustActive(): boolean {
+		if (
+			this.editTrust &&
+			(this.editTrust.sessionId !== this.options.getSessionId() ||
+				this.editTrust.workspace !== resolve(this.options.getCwd()))
+		)
+			this.editTrust = undefined;
+		return (
+			this.mode === "accept-edits" && this.editTrust?.accepted === true && !!this.options.canRequestEditTrust?.()
+		);
+	}
+
+	revokeEditTrust(): void {
+		this.editTrust = undefined;
+	}
+
 	/**
 	 * Decide a tool call. Returns undefined to let it run, or a block. Call it after every hook that may change the
 	 * input has run: it judges exactly what the tool will execute. Any failure here blocks the call.
 	 */
 	async authorize(call: ToolCallRequest, signal?: AbortSignal): Promise<PermissionBlock | undefined> {
-		if (this.mode === "unrestricted") return undefined;
+		if (this.mode === "yolo") return undefined;
 		try {
-			return await this.decide(call, actionsForToolCall(call.toolName, call.input, this.options.getCwd()), signal);
+			const actions = actionsForToolCall(call.toolName, call.input, this.options.getCwd());
+			if (await this.tryAcceptEdit(call, actions, signal)) return undefined;
+			return await this.decide(call, actions, signal);
 		} catch (error) {
 			return this.blockOnError(call, error);
 		}
@@ -106,7 +137,7 @@ export class PermissionGateway {
 	 * call. The prompt and the audit entry name the extension that asks.
 	 */
 	async authorizeExec(command: string, args: string[], request: ExecRequest): Promise<PermissionBlock | undefined> {
-		if (this.mode === "unrestricted") return undefined;
+		if (this.mode === "yolo") return undefined;
 		const call = { toolName: "pi.exec", toolCallId: "", caller: request.extensionPath };
 		try {
 			const line = shellLine(command, args);
@@ -121,7 +152,7 @@ export class PermissionGateway {
 
 	/** Record shell the user typed themselves (`!cmd`). Typing it is the consent, so it is never blocked. */
 	recordUserCommand(command: string): void {
-		if (this.mode === "unrestricted") return;
+		if (this.mode === "yolo") return;
 		const action = execAction(command);
 		this.record({ toolName: "user-bash", toolCallId: "" }, "allow", "user-command", describe(action));
 	}
@@ -130,6 +161,92 @@ export class PermissionGateway {
 		const reason = `Permission check failed: ${error instanceof Error ? error.message : String(error)}`;
 		this.record(call, "deny", "error", reason);
 		return { block: true, reason: clean(reason, MAX_DETAIL_CHARS) };
+	}
+
+	/** Count a started tool call, so the reservation outlives an earlier call that shares its id. */
+	startToolCall(id: string): void {
+		this.running.set(id, (this.running.get(id) ?? 0) + 1);
+	}
+
+	/** Drop the reservation of the last call with this id that ended, even one aborted in a parallel batch. */
+	endToolCall(id: string): void {
+		const remaining = (this.running.get(id) ?? 1) - 1;
+		if (remaining > 0) this.running.set(id, remaining);
+		else {
+			this.running.delete(id);
+			if (this.editReservation?.id === id) this.editReservation = undefined;
+		}
+	}
+
+	/** Release a reservation only for the completed call and its validated argument object. */
+	finishToolCall(id: string, input: unknown): void {
+		if (this.editReservation?.id === id && this.editReservation.input === input) this.editReservation = undefined;
+	}
+
+	private async tryAcceptEdit(call: ToolCallRequest, actions: Action[], signal?: AbortSignal): Promise<boolean> {
+		if (this.mode !== "accept-edits" || !call.builtinEdit || call.toolName !== "edit" || this.editReservation)
+			return false;
+		if (!this.options.canRequestEditTrust?.() || typeof call.input.path !== "string") return false;
+		const workspace = resolve(this.options.getCwd());
+		const sessionId = this.options.getSessionId();
+		const target = resolve(workspace, call.input.path);
+		const action = actions[0];
+		if (
+			actions.length !== 1 ||
+			action.kind !== "write" ||
+			!action.path.inWorkspace ||
+			action.path.protected ||
+			action.path.secret ||
+			action.path.real !== target
+		)
+			return false;
+		this.editReservation = { id: call.toolCallId, input: call.input };
+		let accepted = false;
+		try {
+			if (!(await isRecoverableEdit(workspace, target))) return false;
+			if (
+				(await stat(target)).size > MAX_HASHLINE_BYTES ||
+				!editLeavesContent(await readFile(target), call.builtinEdit, call.input)
+			)
+				return false;
+			if (!this.editTrustActive) {
+				if (this.editTrust?.accepted === false) return false;
+				const prompter = this.options.getPrompter();
+				if (!prompter) return false;
+				const choice = await this.ask(
+					prompter,
+					`Trust automatic edits in ${show(workspace, MAX_DETAIL_CHARS)} for this session?`,
+					["Trust edits for this session", "Not now"],
+					signal,
+				);
+				if (this.options.getSessionId() !== sessionId || resolve(this.options.getCwd()) !== workspace) return false;
+				if (choice === "Not now") this.editTrust = { workspace, sessionId, accepted: false };
+				if (choice !== "Trust edits for this session") return false;
+				this.editTrust = { workspace, sessionId, accepted: true };
+				// The user may leave the prompt open while the workspace changes.
+				if (!(await isRecoverableEdit(workspace, target))) return false;
+				if (
+					(await stat(target)).size > MAX_HASHLINE_BYTES ||
+					!editLeavesContent(await readFile(target), call.builtinEdit, call.input)
+				)
+					return false;
+			}
+			if (
+				signal?.aborted ||
+				this.mode !== "accept-edits" ||
+				resolve(this.options.getCwd()) !== workspace ||
+				this.options.getSessionId() !== sessionId ||
+				!this.options.canRequestEditTrust?.()
+			)
+				return false;
+			this.record(call, "allow", "accept-edits", `${describe(action)}: trusted recoverable edit`);
+			accepted = true;
+			return true;
+		} catch {
+			return false;
+		} finally {
+			if (!accepted) this.finishToolCall(call.toolCallId, call.input);
+		}
 	}
 
 	private async decide(

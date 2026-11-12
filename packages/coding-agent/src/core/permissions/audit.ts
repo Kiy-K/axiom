@@ -13,6 +13,7 @@ export const AUDIT_MAX_BYTES = 5 * 1024 * 1024;
 /** Who produced the decision. */
 export type DecisionSource =
 	| "policy" // the rules decided without asking
+	| "accept-edits" // a trusted, recoverable built-in edit
 	| "grant" // a live grant covered the call
 	| "user" // the user answered a prompt
 	| "user-command" // the user typed the command themselves

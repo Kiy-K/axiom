@@ -2164,6 +2164,20 @@ describe("runToolCall", () => {
 		arguments: args,
 	});
 
+	// Issue #1: permission checks must identify the actual selected tool, not just its name.
+	it("exposes the selected tool to the before hook", async () => {
+		let selected: AgentTool | undefined;
+		await runToolCall(call("identity", "echo", { value: "a" }), {
+			tools: [echo],
+			assistantMessage,
+			context: { messages: [] },
+			beforeToolCall: async ({ tool }) => {
+				selected = tool;
+			},
+		});
+		expect(selected).toBe(echo);
+	});
+
 	it("validates, runs the hooks, and reports failures as error outcomes", async () => {
 		const hookCalls: string[] = [];
 		const updates: unknown[] = [];

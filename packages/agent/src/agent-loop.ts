@@ -711,7 +711,7 @@ function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall)
 	}
 	return {
 		...toolCall,
-		arguments: preparedArguments as Record<string, any>,
+		arguments: preparedArguments as AgentToolCall["arguments"],
 	};
 }
 
@@ -740,6 +740,7 @@ async function prepareToolCall(
 				{
 					assistantMessage,
 					toolCall,
+					tool,
 					args: validatedArgs,
 					context: currentContext,
 				},

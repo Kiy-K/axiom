@@ -6888,6 +6888,7 @@ export class InteractiveMode {
 		let text: string;
 		if (revoke) {
 			const target = revoke[1];
+			if (target === "all") permissions.revokeEditTrust();
 			text =
 				target === "all"
 					? `Revoked ${permissions.grants.clear()} grant(s).`
@@ -6911,7 +6912,10 @@ export class InteractiveMode {
 						`  ${entry.decision.padEnd(5)} ${entry.source.padEnd(12)} ${entry.toolName}${entry.caller === undefined ? "" : ` [${entry.caller}]`}: ${entry.detail}`,
 				);
 			text = [
-				`Permission mode: ${permissions.mode}${permissions.mode === "unrestricted" ? ' (gateway off; set permissionMode to "manual" in settings)' : ""}`,
+				`Permission mode: ${permissions.mode}${permissions.mode === "yolo" ? ' (gateway off; set permissionMode to "manual" in settings)' : ""}`,
+				...(permissions.mode === "accept-edits"
+					? [`Edit trust: ${permissions.editTrustActive ? "active" : "inactive"}`]
+					: []),
 				grants.length > 0 ? `Grants:\n${grants.join("\n")}` : "Grants: none",
 				recent.length > 0 ? `Recent decisions:\n${recent.join("\n")}` : "Recent decisions: none",
 			].join("\n");

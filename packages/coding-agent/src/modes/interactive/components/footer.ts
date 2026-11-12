@@ -214,6 +214,10 @@ export class FooterComponent implements Component {
 			statsParts.push(`${theme.fg("dim", "•")} ${theme.bold(theme.fg("warning", "xp"))}`);
 		}
 
+		if (this.session.permissions.editTrustActive) {
+			statsParts.push(`${theme.fg("dim", "•")} ${theme.fg("warning", "edits trusted")}`);
+		}
+
 		let statsLeft = statsParts.join(" ");
 
 		// Add model name on the right side, plus thinking level if model supports it

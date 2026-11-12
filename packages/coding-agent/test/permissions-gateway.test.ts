@@ -55,8 +55,8 @@ describe("PermissionGateway", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("does nothing in unrestricted mode: no decision, no prompt, no audit entry", async () => {
-		mode = "unrestricted";
+	it("does nothing in yolo mode: no decision, no prompt, no audit entry", async () => {
+		mode = "yolo";
 		const gateway = make();
 		expect(await gateway.authorize(call("bash", { command: "sudo rm -rf /" }))).toBeUndefined();
 		gateway.recordUserCommand("ls");
@@ -68,7 +68,7 @@ describe("PermissionGateway", () => {
 		const gateway = make();
 		answers = ["Deny"];
 		expect((await gateway.authorize(call("bash", { command: "ls" })))?.block).toBe(true);
-		mode = "unrestricted";
+		mode = "yolo";
 		expect(await gateway.authorize(call("bash", { command: "ls" }))).toBeUndefined();
 	});
 
@@ -184,7 +184,7 @@ describe("PermissionGateway", () => {
 		expect(asked[1].title).toContain("run echo 'it'\\''s' 'x'\\'' ; sudo ls ; '\\''y'");
 		hasPrompter = false;
 		expect((await exec("ls", []))?.reason).toContain("no user interface");
-		mode = "unrestricted";
+		mode = "yolo";
 		expect(await exec("sudo", ["ls"])).toBeUndefined();
 	});
 

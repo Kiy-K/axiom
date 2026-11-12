@@ -109,6 +109,8 @@ export interface BeforeToolCallContext {
 	assistantMessage: AssistantMessage;
 	/** The raw tool call block from `assistantMessage.content`. */
 	toolCall: AgentToolCall;
+	/** The selected tool that will execute the call. */
+	tool: AgentTool;
 	/** Validated tool arguments for the target tool schema. */
 	args: unknown;
 	/** Current agent context at the time the tool call is prepared. */

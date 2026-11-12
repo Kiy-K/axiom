@@ -2,7 +2,7 @@
 
 Roadmap issue [#1](https://github.com/Kiy-K/axiom/issues/1), phase P4. Paths are relative to `packages/coding-agent/src/`.
 
-**Status:** gateway, policy, grants, audit and redaction are implemented and tested. The default mode is still `unrestricted` (Pi's behavior). P4 acceptance is not claimed: see [Routes and their control](#routes-and-their-control) and [Open](#open).
+**Status:** gateway, policy, grants, audit and redaction are implemented and tested. The default mode is still `yolo` (Pi's behavior). P4 acceptance is not claimed: see [Routes and their control](#routes-and-their-control) and [Open](#open).
 
 ## Problem
 
@@ -15,11 +15,11 @@ Before this change nothing decided whether a tool call may run; `tool_call` exte
 ```
 tool call -> extension tool_call handlers -> gateway.authorize -> tool.execute
                                                 |
-              mode = unrestricted: allow, no audit
+              mode = yolo: allow, no audit
               mode = manual: actions -> allow | deny | ask -> (grant? prompt?) -> audit
 ```
 
-Setting `permissionMode` (global settings only): `"unrestricted"` (default when unset, gateway off) or `"manual"`. It fails closed: any other value (`"Manual"`, `"strict"`), and an unreadable global settings file, mean `manual`. A project setting cannot loosen it. Settings are read when the session loads or reloads (`/reload`), not on every call.
+Setting `permissionMode` (global settings only): `"yolo"` (default when unset, gateway off), `"manual"`, or `"accept-edits"`. In `accept-edits`, explicit session trust can allow eligible built-in edits to tracked files in a clean Git worktree; other actions follow the manual rules. It fails closed: any other value, including the former `"unrestricted"` name, and an unreadable global settings file, mean `manual`. A project setting cannot loosen it. Settings are read when the session loads or reloads (`/reload`), not on every call.
 
 ### Actions and rules in `manual` mode
 
@@ -87,7 +87,7 @@ Fail-closed is tested for the built-ins: each name in `allToolNames`, called wit
 - Not done from review: a workspace write grant covers `.github/workflows`, `package.json`, `.vscode`, `.envrc` and similar files that run code; the exact-command grant is shared between `bash`, `job send_input` and `pi.exec` and survives edits to a script it runs; `mv`, `cp`, `sed -i`, `tee` and redirections have no named risk; option-prefixed subcommands are found only within the first three words after the command (first for git); `.git/config` is not credentials-like; the gateway uses the session manager's cwd, not a tool context cwd.
 
 - A user who never set `permissionMode` but has an unreadable global `settings.json` gets `manual` until the next successful reload.
-- `unrestricted` remains the default until P5 defines accept-edits on top of this gateway.
+- `yolo` (formerly `unrestricted`) remains the default; `accept-edits` is opt-in.
 - No `/mode` switch (P6). The setting is read from memory on every call; editing the file takes effect after `/reload` or a new session.
 - Cross-session job access is covered by the supervisor's owner check, not by new gateway tests.
 - Prompts show text only; there is no diff preview for edits.

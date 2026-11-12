@@ -78,7 +78,7 @@ Ticked when all of this holds:
 - Fail-closed is shown for every name in `allToolNames`: called with empty input `{}` in `manual` mode, none returns allow. `job` is not in that set; `job {}` is allowed by design because it has no effect, and only `send_input` is judged.
 - A fresh-context reviewer, given the issue and the code, has attacked the final state, and every high and medium finding is fixed or listed as open.
 
-The default stays `unrestricted`. Changing it is P5. Ticking the gate means the mechanism meets its stated bounds, not that the default is safe.
+The default stays `yolo` (named `unrestricted` until P5, which kept it as the default). Ticking the gate means the mechanism meets its stated bounds, not that the default is safe.
 
 ## Item 1 wording
 
@@ -94,7 +94,7 @@ Each test must fail against a plausible wrong implementation.
 | Same, user allows once: transport created with exactly the `command`, `args` and `cwd` that were judged | judged line differs from spawned line |
 | Global-scope and project-scope entries spawn with no prompt in `manual` mode | gate applied to every scope |
 | A denied extension server does not respawn in a loop | retry on denial |
-| Extension server in `unrestricted` mode: no prompt, no audit entry | gate not a no-op |
+| Extension server in `yolo` mode: no prompt, no audit entry | gate not a no-op |
 | Audit file at the cap rotates to `.1`; both files 0600; newest entry in the new file; one generation kept after a second rotation | no rotation; rotation losing the new entry; old generations piling up |
 | Audit rotation failure still returns the decision | rotation error treated as a denial or thrown |
 | Log page with `\x9b2J`, `\x7f` and a multibyte character: controls removed, the character intact | stripping by byte (corrupts UTF-8), or not at all |
@@ -106,7 +106,7 @@ Gating user commands, project-scope MCP prompts, output redaction, accept-edits 
 
 ## Rollback
 
-One commit per decision: MCP spawn gate, log-page stripping, audit rotation, docs. Reverting any one leaves the others working. `unrestricted` mode is unaffected by all of them.
+One commit per decision: MCP spawn gate, log-page stripping, audit rotation, docs. Reverting any one leaves the others working. `yolo` mode is unaffected by all of them.
 
 ## Questions for the reviewer
 

@@ -1,10 +1,10 @@
 // Shared vocabulary of the permission gateway: modes, actions a tool call performs, and decisions.
 
 /**
- * `unrestricted` makes the gateway a no-op (Pi's behavior). `manual` mediates every action and asks for
- * anything that is not a read inside the workspace.
+ * `yolo` makes the gateway a no-op. `manual` mediates actions and asks for anything that is not
+ * a read inside the workspace. `accept-edits` also permits eligible edits after session trust.
  */
-export type PermissionMode = "unrestricted" | "manual";
+export type PermissionMode = "yolo" | "manual" | "accept-edits";
 
 export type Decision = "allow" | "deny" | "ask";
 

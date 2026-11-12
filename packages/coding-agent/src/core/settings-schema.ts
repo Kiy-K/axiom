@@ -275,9 +275,9 @@ export const SettingsSchema = Type.Object(
 			}),
 		),
 		permissionMode: Type.Optional(
-			Type.Union([Type.Literal("unrestricted"), Type.Literal("manual")], {
+			Type.Union([Type.Literal("yolo"), Type.Literal("manual"), Type.Literal("accept-edits")], {
 				description:
-					'Permission gateway mode. "manual" asks before edits, shell commands and tools with unknown effects, and denies protected paths. "unrestricted" turns the gateway off. Global setting only.',
+					'Permission gateway mode. "manual" asks before edits, shell commands and tools with unknown effects, and denies protected paths. "yolo" (default) turns the gateway off. Global setting only.',
 				default: SETTINGS_DEFAULTS.permissionMode,
 			}),
 		),
