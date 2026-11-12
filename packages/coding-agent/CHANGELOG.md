@@ -39,6 +39,7 @@
 
 ### Fixed
 
+- Axiom now prints a startup warning when `permissionMode` is the former `unrestricted` value or any other unrecognized value, instead of silently running in `manual`; it still runs in `manual`. `schemas/settings.schema.json` now lists `yolo`, `manual` and `accept-edits`, and `yolo` as the default (it still listed `unrestricted`).
 - Fixed `job output` and the output shown when a command moves to the background passing DEL and C1 control characters (including the 8-bit CSI `U+009B`) through; they are now removed with the C0 controls.
 - Fixed the Linux process helper remaining blocked on a cleanup confirmation when its output pipe is full. Cleanup that cannot be confirmed still retains its crash record where available.
 - Fixed a stop or timeout hanging when the native process helper never reported its spawn: the helper is now killed 5 seconds after the request.

@@ -19,7 +19,7 @@ tool call -> extension tool_call handlers -> gateway.authorize -> tool.execute
               mode = manual: actions -> allow | deny | ask -> (grant? prompt?) -> audit
 ```
 
-Setting `permissionMode` (global settings only): `"yolo"` (default when unset, gateway off), `"manual"`, or `"accept-edits"`. In `accept-edits`, explicit session trust can allow eligible built-in edits to tracked files in a clean Git worktree; other actions follow the manual rules. It fails closed: any other value, including the former `"unrestricted"` name, and an unreadable global settings file, mean `manual`. A project setting cannot loosen it. Settings are read when the session loads or reloads (`/reload`), not on every call.
+Setting `permissionMode` (global settings only): `"yolo"` (default when unset, gateway off), `"manual"`, or `"accept-edits"`. In `accept-edits`, explicit session trust can allow eligible built-in edits to tracked files in a clean Git worktree; other actions follow the manual rules. It fails closed: any other value, including the former `"unrestricted"` name, and an unreadable global settings file, mean `manual`. A value that is set but not recognized (the former name or a typo) is not migrated, and startup prints a warning that names the value and says the session runs in `manual`; for the former name it says to set `"yolo"` to turn the gateway off. An unreadable file gets only the parse error. A project setting cannot loosen it. Settings are read when the session loads or reloads (`/reload`), not on every call.
 
 ### Actions and rules in `manual` mode
 

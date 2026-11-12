@@ -1040,6 +1040,19 @@ export class SettingsManager {
 		return value === "yolo" || value === "accept-edits" ? value : "manual";
 	}
 
+	/**
+	 * Why a configured `permissionMode` runs as `manual`, or undefined when it is valid, unset, or the file is
+	 * unreadable (that has its own warning). The value comes from a file, so its type is not guaranteed.
+	 */
+	getPermissionModeNotice(): string | undefined {
+		if (this.globalSettingsLoadError) return undefined;
+		const value: unknown = this.globalSettings.permissionMode;
+		if (value === undefined || value === "yolo" || value === "manual" || value === "accept-edits") return undefined;
+		if (value === "unrestricted")
+			return 'permissionMode "unrestricted" was renamed "yolo"; running in "manual" mode. Set "yolo" in your global settings to turn the permission gateway off.';
+		return `permissionMode ${JSON.stringify(value).slice(0, 60)} is not recognized; running in "manual" mode. Valid values: "yolo", "manual", "accept-edits".`;
+	}
+
 	setPermissionMode(mode: PermissionModeSetting): void {
 		this.globalSettings.permissionMode = mode;
 		this.markModified("permissionMode");

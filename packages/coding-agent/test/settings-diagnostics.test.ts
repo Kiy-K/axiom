@@ -36,6 +36,54 @@ describe("settings diagnostics", () => {
 		expect(diagnostics).toEqual([{ type: "warning", message: "Invalid global settings: backend failed" }]);
 	});
 
+	describe("permissionMode", () => {
+		const diagnosticsFor = (globalFile: string) => {
+			const tempDir = mkdtempSync(join(tmpdir(), "pi-settings-diagnostics-"));
+			const agentDir = join(tempDir, "agent");
+			mkdirSync(agentDir);
+			writeFileSync(join(agentDir, "settings.json"), globalFile);
+			try {
+				return collectSettingsDiagnostics(SettingsManager.create(tempDir, agentDir));
+			} finally {
+				rmSync(tempDir, { recursive: true, force: true });
+			}
+		};
+
+		it("tells a user of the former unrestricted value that it now runs as manual", () => {
+			const diagnostics = diagnosticsFor('{"permissionMode":"unrestricted"}');
+
+			expect(diagnostics).toHaveLength(1);
+			expect(diagnostics[0]?.type).toBe("warning");
+			expect(diagnostics[0]?.message).toContain('"unrestricted" was renamed "yolo"');
+			expect(diagnostics[0]?.message).toContain('running in "manual" mode');
+		});
+
+		it("names an unrecognized value, and escapes control characters in it", () => {
+			const diagnostics = diagnosticsFor('{"permissionMode":"stric\\u001b[2Jt"}');
+
+			expect(diagnostics).toHaveLength(1);
+			expect(diagnostics[0]?.message).toContain("not recognized");
+			expect(diagnostics[0]?.message).not.toContain("\u001b");
+		});
+
+		it("is silent for unset and valid values", () => {
+			for (const file of [
+				"{}",
+				'{"permissionMode":"yolo"}',
+				'{"permissionMode":"manual"}',
+				'{"permissionMode":"accept-edits"}',
+			])
+				expect(diagnosticsFor(file)).toEqual([]);
+		});
+
+		it("reports only the parse error when the file is unreadable, not a second notice about the value", () => {
+			const diagnostics = diagnosticsFor('{"permissionMode":"unrestricted"');
+
+			expect(diagnostics).toHaveLength(1);
+			expect(diagnostics[0]?.message).toContain("Invalid settings file");
+		});
+	});
+
 	it("deduplicates diagnostics by type and message", () => {
 		const warning = { type: "warning" as const, message: "Invalid settings file /tmp/settings.json" };
 

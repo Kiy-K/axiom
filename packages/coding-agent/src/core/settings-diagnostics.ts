@@ -2,10 +2,13 @@ import type { AgentSessionRuntimeDiagnostic } from "./agent-session-services.ts"
 import type { SettingsManager } from "./settings-manager.ts";
 
 export function collectSettingsDiagnostics(settingsManager: SettingsManager): AgentSessionRuntimeDiagnostic[] {
-	return settingsManager.drainErrors().map(({ scope, path, error }) => ({
+	const diagnostics: AgentSessionRuntimeDiagnostic[] = settingsManager.drainErrors().map(({ scope, path, error }) => ({
 		type: "warning",
 		message: path ? `Invalid settings file ${path}: ${error.message}` : `Invalid ${scope} settings: ${error.message}`,
 	}));
+	const permissionNotice = settingsManager.getPermissionModeNotice();
+	if (permissionNotice) diagnostics.push({ type: "warning", message: permissionNotice });
+	return diagnostics;
 }
 
 /**
