@@ -11,6 +11,7 @@ import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
 import { classifyPath } from "./paths.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
 import { sanitizeForDisplay as sanitize, sanitizeForPrompt as show } from "./redact.ts";
+import { runsNetworkCommand, untrustedSource } from "./taint.ts";
 import {
 	type Action,
 	type ActionVerdict,
@@ -79,6 +80,13 @@ export interface ToolCallRequest {
 /** A prompt that nobody answers within this time is a denial. */
 export const PROMPT_TIMEOUT_MS = 2 * 60 * 1000;
 
+/**
+ * Approval prompts one task may show after untrusted content entered it, in a mode that relaxes prompts. Later ones
+ * are denied without asking: an injected agent that keeps asking would otherwise wear the user down (a deterministic
+ * budget of 1 to 2 gave the best result in the study cited in the P6 contract; 3 leaves room for a legitimate step).
+ */
+export const TAINT_ASK_BUDGET = 3;
+
 const ALLOW_ONCE = "Allow once";
 const DENY = "Deny";
 /** Long enough for any command the policy lets through, so a prompt or log entry never hides part of one. */
@@ -109,6 +117,13 @@ export class PermissionGateway {
 	private modeGeneration = 0;
 	/** True between `beginTask` and `endTask`: a run the user started. */
 	private taskActive = false;
+	/** The first untrusted source of this task, until the user's next prompt. */
+	private taint?: string;
+	private taintAsks = 0;
+	/** Set by the first network command of the session and kept across tasks: a job it started may print later. */
+	private networkCommandSeen = false;
+	/** Allowed calls whose result is untrusted content, by call id, until the call finishes. */
+	private readonly pendingUntrusted = new Map<string, string>();
 	// Started and not yet ended calls per id: a provider may reuse an id, and the first end must not free the other call.
 	private readonly running = new Map<string, number>();
 
@@ -170,12 +185,20 @@ export class PermissionGateway {
 	/** A run the user started begins. Extension-started runs do not call this and get no grants in `auto`. */
 	beginTask(): void {
 		this.taskActive = true;
+		this.taint = undefined;
+		this.taintAsks = 0;
 	}
 
 	/** The run settled or was aborted. In `auto`, grants end with the task. */
 	endTask(): void {
 		this.taskActive = false;
 		if (this.mode === "auto") this.grants.clear();
+	}
+
+	/** Why prompts are tighter right now: untrusted content entered this task in a mode that relaxes prompts. */
+	get untrustedSource(): string | undefined {
+		const mode = this.mode;
+		return mode === "accept-edits" || mode === "auto" ? this.taint : undefined;
 	}
 
 	get editTrustActive(): boolean {
@@ -203,7 +226,9 @@ export class PermissionGateway {
 		try {
 			const actions = actionsForToolCall(call.toolName, call.input, this.options.getCwd());
 			if (await this.tryAcceptEdit(call, actions, signal)) return undefined;
-			return await this.decide(call, actions, signal);
+			const block = await this.decide(call, actions, signal);
+			if (!block) this.expectUntrustedResult(call, actions);
+			return block;
 		} catch (error) {
 			return this.blockOnError(call, error);
 		}
@@ -248,6 +273,7 @@ export class PermissionGateway {
 
 	/** Drop the reservation of the last call with this id that ended, even one aborted in a parallel batch. */
 	endToolCall(id: string): void {
+		this.pendingUntrusted.delete(id);
 		const remaining = (this.running.get(id) ?? 1) - 1;
 		if (remaining > 0) this.running.set(id, remaining);
 		else {
@@ -258,6 +284,11 @@ export class PermissionGateway {
 
 	/** Release a reservation only for the completed call and its validated argument object. */
 	finishToolCall(id: string, input: unknown): void {
+		const source = this.pendingUntrusted.get(id);
+		if (source !== undefined) {
+			this.pendingUntrusted.delete(id);
+			this.taint ??= source;
+		}
 		if (this.editReservation?.id === id && this.editReservation.input === input) this.editReservation = undefined;
 	}
 
@@ -265,6 +296,8 @@ export class PermissionGateway {
 		if (this.mode !== "accept-edits" || !call.builtinEdit || call.toolName !== "edit" || this.editReservation)
 			return false;
 		if (!this.options.canRequestEditTrust?.() || typeof call.input.path !== "string") return false;
+		// Untrusted content entered this task: a planted edit is what an injection wants, so every edit asks.
+		if (this.untrustedSource !== undefined) return false;
 		const workspace = resolve(this.options.getCwd());
 		const sessionId = this.options.getSessionId();
 		const target = resolve(workspace, call.input.path);
@@ -307,7 +340,8 @@ export class PermissionGateway {
 				this.mode !== "accept-edits" ||
 				resolve(this.options.getCwd()) !== workspace ||
 				this.options.getSessionId() !== sessionId ||
-				!this.options.canRequestEditTrust?.()
+				!this.options.canRequestEditTrust?.() ||
+				this.untrustedSource !== undefined
 			)
 				return false;
 			// The copy is made from the bytes the edit was just validated against, and the edit waits for it.
@@ -337,11 +371,12 @@ export class PermissionGateway {
 			return { block: true, reason: `Blocked by permission policy: ${denied.verdict.reason}.` };
 		}
 
+		const untrusted = this.untrustedSource;
 		const pending = verdicts.filter(
-			(entry) => entry.verdict.decision === "ask" && !(entry.verdict.grantable && this.grants.find(entry.action)),
+			(entry) => entry.verdict.decision === "ask" && !(entry.verdict.grantable && this.findGrant(entry.action)),
 		);
 		if (pending.length === 0) {
-			const grant = verdicts.map((entry) => this.grants.find(entry.action)).find((found) => found !== undefined);
+			const grant = verdicts.map((entry) => this.findGrant(entry.action)).find((found) => found !== undefined);
 			this.record(call, "allow", grant ? "grant" : "policy", summary, grant?.id);
 			return undefined;
 		}
@@ -352,9 +387,20 @@ export class PermissionGateway {
 			return { block: true, reason: "Blocked: this action needs approval and no user interface is available." };
 		}
 
+		// Only the model's own calls spend the budget: an extension's `pi.exec`, an MCP server start or a provider
+		// credential command (they carry a `caller`) must not fail a model request because the model asked three times.
+		if (untrusted !== undefined && call.caller === undefined && ++this.taintAsks > TAINT_ASK_BUDGET) {
+			this.record(call, "deny", "taint-budget", summary);
+			return {
+				block: true,
+				reason: `Blocked: untrusted content (${untrusted}) entered this task and the approval budget is spent. Stop and ask the user to continue in a new message.`,
+			};
+		}
+
 		const grantable = pending.map((entry) => entry.verdict.grantable);
-		// In `auto`, only a run the user started can offer a grant; it ends with the task.
-		const mayGrant = this.mode !== "auto" || this.taskActive;
+		// In `auto`, only a run the user started can offer a grant; it ends with the task. After untrusted content
+		// entered the task, none is offered at all (see `findGrant`).
+		const mayGrant = (this.mode !== "auto" || this.taskActive) && untrusted === undefined;
 		const grantScopes =
 			mayGrant && grantable.every((scope) => scope !== undefined) ? (grantable as GrantScope[]) : undefined;
 		const grantLabel = grantScopes
@@ -362,7 +408,8 @@ export class PermissionGateway {
 			: undefined;
 		const choices = [ALLOW_ONCE, ...(grantLabel ? [grantLabel] : []), DENY];
 		const asker = call.caller === undefined ? "" : `\nExtension: ${showTail(call.caller, MAX_CALLER_CHARS)}`;
-		const title = `Permission needed: ${show(call.toolName, 100)}${asker}\n${pending.map(promptLine).join("\n")}`;
+		const taintNote = untrusted === undefined ? "" : `\nUntrusted content entered this task: ${untrusted}.`;
+		const title = `Permission needed: ${show(call.toolName, 100)}${asker}${taintNote}\n${pending.map(promptLine).join("\n")}`;
 
 		const generation = this.modeGeneration;
 		const choice = await this.ask(prompter, title, choices, signal);
@@ -419,6 +466,18 @@ export class PermissionGateway {
 			clearTimeout(timer);
 			signal?.removeEventListener("abort", stopOnAbort);
 		}
+	}
+
+	/** A live grant covering `action`. None once untrusted content entered the task: every ask then needs an answer. */
+	private findGrant(action: Action) {
+		return this.untrustedSource === undefined ? this.grants.find(action) : undefined;
+	}
+
+	/** Note that an allowed call's result is untrusted content; it taints the task when the call finishes. */
+	private expectUntrustedResult(call: ToolCallRequest, actions: Action[]): void {
+		const source = untrustedSource(call.toolName, call.input, actions, this.networkCommandSeen);
+		if (runsNetworkCommand(actions)) this.networkCommandSeen = true;
+		if (source !== undefined) this.pendingUntrusted.set(call.toolCallId, source);
 	}
 
 	/**

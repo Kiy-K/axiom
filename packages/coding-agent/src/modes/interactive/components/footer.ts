@@ -218,6 +218,9 @@ export class FooterComponent implements Component {
 		if (permissionMode !== "yolo") {
 			statsParts.push(`${theme.fg("dim", "•")} ${theme.fg("warning", permissionMode)}`);
 		}
+		if (this.session.permissions.untrustedSource !== undefined) {
+			statsParts.push(`${theme.fg("dim", "•")} ${theme.fg("warning", "untrusted input")}`);
+		}
 		if (this.session.permissions.editTrustActive) {
 			statsParts.push(`${theme.fg("dim", "•")} ${theme.fg("warning", "edits trusted")}`);
 		}

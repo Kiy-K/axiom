@@ -20,6 +20,7 @@ export type DecisionSource =
 	| "no-ui" // a prompt was needed and there was nobody to ask
 	| "timeout" // the prompt expired or was dismissed
 	| "mode-change" // the permission mode changed while the prompt was open
+	| "taint-budget" // the task's approval budget was spent after untrusted content entered it
 	| "error"; // evaluating the call failed, so it was denied
 
 export interface AuditEntry {

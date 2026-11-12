@@ -6996,6 +6996,11 @@ export class InteractiveMode {
 				...(permissions.mode === "accept-edits"
 					? [`Edit trust: ${permissions.editTrustActive ? "active" : "inactive"}`]
 					: []),
+				...(permissions.untrustedSource === undefined
+					? []
+					: [
+							`Untrusted content entered this task (${permissions.untrustedSource}): edits and approvals need an answer each time.`,
+						]),
 				grants.length > 0 ? `Grants:\n${grants.join("\n")}` : "Grants: none",
 				recent.length > 0 ? `Recent decisions:\n${recent.join("\n")}` : "Recent decisions: none",
 			].join("\n");
