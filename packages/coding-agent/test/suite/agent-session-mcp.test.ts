@@ -1301,6 +1301,7 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 		answer?: () => string | undefined;
 	}) {
 		const spawned: string[] = [];
+		const transported: McpServerEntry[] = [];
 		const prompts: string[] = [];
 		const harness = await createHarness({
 			initialActiveToolNames: [],
@@ -1315,6 +1316,7 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 					loadConfig: () => ({ servers: options.configured ?? [], errors: [] }),
 					createTransport: (entry) => {
 						spawned.push(entry.name);
+						transported.push(entry);
 						const pair = createFakeServer([]);
 						void pair.server.start();
 						return pair.client;
@@ -1331,7 +1333,7 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 				},
 			}),
 		});
-		return { harness, spawned, prompts };
+		return { harness, spawned, prompts, transported };
 	}
 
 	const stdio = (command: string, extra: Partial<McpServerConfig> = {}): McpServerConfig =>
@@ -1355,14 +1357,15 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 	});
 
 	it("starts the server once the user allows it, and shows the working directory when it is not the session's", async () => {
-		const { prompts, spawned } = await setup({
+		const { prompts, spawned, transported } = await setup({
 			permissionMode: "manual",
 			registered: { plugin: stdio("node", { cwd: "/elsewhere" }) },
 			answer: () => "Allow once",
 		});
 		await vi.waitFor(() => expect(spawned).toEqual(["plugin"]));
 		expect(prompts).toHaveLength(1);
-		expect(prompts[0]).toContain("run cd /elsewhere && node --flag");
+		expect(prompts[0]).toContain("run cd /elsewhere && node --flag 'it'\\''s'");
+		expect(transported[0].config).toEqual(stdio("node", { cwd: "/elsewhere" }));
 	});
 
 	it("asks about each !command value an extension's server needs, before it starts anything", async () => {

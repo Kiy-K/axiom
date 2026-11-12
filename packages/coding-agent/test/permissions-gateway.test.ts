@@ -1,8 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AUDIT_MAX_BYTES } from "../src/core/permissions/audit.ts";
 import { PermissionGateway, type PermissionPrompter } from "../src/core/permissions/gateway.ts";
+import { actionsForToolCall } from "../src/core/permissions/policy.ts";
 import type { PermissionMode } from "../src/core/permissions/types.ts";
 import { allToolNames } from "../src/core/tools/index.ts";
 
@@ -248,6 +250,33 @@ describe("PermissionGateway", () => {
 		}
 	});
 
+	it("denies malformed built-in calls even when the user would approve", async () => {
+		const gateway = make();
+		for (const name of allToolNames) {
+			// These default to a directory search, which legitimately asks for approval.
+			if (name === "grep" || name === "find" || name === "ls") continue;
+			answers = ["Allow once"];
+			expect((await gateway.authorize(call(name, {})))?.block, name).toBe(true);
+		}
+		expect(asked).toEqual([]);
+	});
+	it("classifies every built-in instead of treating it as an unknown extension", () => {
+		for (const name of allToolNames) {
+			expect(
+				actionsForToolCall(name, {}, dir).map((action) => action.kind),
+				name,
+			).not.toContain("extension");
+		}
+	});
+	it("keeps gateway decisions when audit rotation fails", async () => {
+		const file = join(dir, "permissions.jsonl");
+		writeFileSync(file, Buffer.alloc(AUDIT_MAX_BYTES));
+		mkdirSync(`${file}.1`);
+		const gateway = make(file);
+		expect(await gateway.authorize(call("read", { path: "file.txt" }))).toBeUndefined();
+		expect((await gateway.authorize(call("bash", { command: "sudo ls" })))?.block).toBe(true);
+		expect(warnings.some((warning) => warning.includes("rotation failed"))).toBe(true);
+	});
 	it("asks once per tool whose effects it cannot see", async () => {
 		const gateway = make();
 		answers = ["Allow once"];
