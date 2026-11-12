@@ -72,6 +72,7 @@ describe("settings diagnostics", () => {
 				'{"permissionMode":"yolo"}',
 				'{"permissionMode":"manual"}',
 				'{"permissionMode":"accept-edits"}',
+				'{"permissionMode":"auto"}',
 			])
 				expect(diagnosticsFor(file)).toEqual([]);
 		});

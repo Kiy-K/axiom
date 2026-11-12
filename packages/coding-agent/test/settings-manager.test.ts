@@ -787,6 +787,7 @@ describe("SettingsManager permissionMode", () => {
 		expect(modeFor('{"permissionMode":"unrestricted"}')).toBe("manual");
 		expect(modeFor('{"permissionMode":"manual"}')).toBe("manual");
 		expect(modeFor('{"permissionMode":"accept-edits"}')).toBe("accept-edits");
+		expect(modeFor('{"permissionMode":"auto"}')).toBe("auto");
 	});
 
 	it("fails closed on a misspelled value or an unreadable settings file", () => {

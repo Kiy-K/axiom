@@ -19,6 +19,7 @@ export type DecisionSource =
 	| "user-command" // the user typed the command themselves
 	| "no-ui" // a prompt was needed and there was nobody to ask
 	| "timeout" // the prompt expired or was dismissed
+	| "mode-change" // the permission mode changed while the prompt was open
 	| "error"; // evaluating the call failed, so it was denied
 
 export interface AuditEntry {

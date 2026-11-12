@@ -106,7 +106,12 @@ import {
 } from "../../core/model-resolver.ts";
 import { CredentialSynchronizationError } from "../../core/model-runtime.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
-import { describeGrantScope } from "../../core/permissions/index.ts";
+import {
+	describeGrantScope,
+	modeRank,
+	PERMISSION_MODES_STRICTEST_FIRST,
+	type PermissionMode,
+} from "../../core/permissions/index.ts";
 import { findMatchingProviders } from "../../core/provider-matching.ts";
 import { RADIUS_PROVIDER_ID } from "../../core/radius.ts";
 import { planRadiusMcpServer } from "../../core/radius-mcp.ts";
@@ -3389,6 +3394,11 @@ export class InteractiveMode {
 			if (text === "/jobs" || text.startsWith("/jobs ")) {
 				await this.handleJobsCommand(text.slice("/jobs".length).trim());
 				this.editor.setText("");
+				return;
+			}
+			if (text === "/mode" || text.startsWith("/mode ")) {
+				this.editor.setText("");
+				await this.handleModeCommand(text.slice("/mode".length).trim());
 				return;
 			}
 			if (text === "/permissions" || text.startsWith("/permissions ")) {
@@ -6882,6 +6892,40 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	/** Show or set the session's permission mode. Only this user command can loosen it; see docs/axiom/p6-auto-mode-contract.md. */
+	private async handleModeCommand(args: string): Promise<void> {
+		const { permissions } = this.session;
+		const usage = `Usage: /mode [${PERMISSION_MODES_STRICTEST_FIRST.join("|")}]`;
+		let text: string;
+		const target = PERMISSION_MODES_STRICTEST_FIRST.find((mode) => mode === args);
+		if (args === "") {
+			text = `Permission mode: ${permissions.mode}${permissions.override === undefined ? "" : " (session override)"}\n${usage}`;
+		} else if (target === undefined) {
+			text = usage;
+		} else if (
+			target === "yolo" &&
+			modeRank(target) > modeRank(permissions.mode) &&
+			!(await this.showExtensionConfirm(
+				"Turn the permission gateway off?",
+				"In yolo mode every tool call runs without a check, for the rest of this session.",
+			))
+		) {
+			text = `Permission mode stays ${permissions.mode}.`;
+		} else {
+			permissions.setModeOverride(target);
+			text = `Permission mode: ${permissions.mode}${this.describeModeCaveat(target, permissions.mode)}`;
+		}
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
+		this.ui.requestRender();
+	}
+
+	private describeModeCaveat(requested: PermissionMode, effective: PermissionMode): string {
+		if (requested === "auto" && effective === "manual") return ' ("auto" runs as manual here: CI is set)';
+		if (requested === "auto") return " (auto currently allows nothing beyond manual)";
+		return "";
+	}
+
 	private handlePermissionsCommand(args: string): void {
 		const { permissions } = this.session;
 		const revoke = /^revoke\s+(\S+)$/.exec(args);
@@ -6912,7 +6956,7 @@ export class InteractiveMode {
 						`  ${entry.decision.padEnd(5)} ${entry.source.padEnd(12)} ${entry.toolName}${entry.caller === undefined ? "" : ` [${entry.caller}]`}: ${entry.detail}`,
 				);
 			text = [
-				`Permission mode: ${permissions.mode}${permissions.mode === "yolo" ? ' (gateway off; set permissionMode to "manual" in settings)' : ""}`,
+				`Permission mode: ${permissions.mode}${permissions.mode === "yolo" ? " (gateway off; use /mode manual, or set permissionMode in settings)" : ""}`,
 				...(permissions.mode === "accept-edits"
 					? [`Edit trust: ${permissions.editTrustActive ? "active" : "inactive"}`]
 					: []),

@@ -269,9 +269,13 @@
         {
           "type": "string",
           "const": "accept-edits"
+        },
+        {
+          "type": "string",
+          "const": "auto"
         }
       ],
-      "description": "Permission gateway mode. \"manual\" asks before edits, shell commands and tools with unknown effects, and denies protected paths. \"yolo\" (default) turns the gateway off. Global setting only.",
+      "description": "Permission gateway mode. \"manual\" asks before edits, shell commands and tools with unknown effects, and denies protected paths. \"accept-edits\" also allows trusted edits. \"auto\" adds positive allow rules in an interactive session and behaves as \"manual\" elsewhere. \"yolo\" (default) turns the gateway off. Global setting only.",
       "default": "yolo"
     },
     "shellCommandPrefix": {

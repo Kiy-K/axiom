@@ -182,6 +182,8 @@ export class AgentSessionRuntime {
 	}
 
 	private apply(result: CreateAgentSessionRuntimeResult): void {
+		// A new session starts from the setting, so only a tightening of it (never a loosening) carries over.
+		result.session.permissions.setModeOverride(this._session.permissions.tighteningOverride());
 		this._session = result.session;
 		this._services = result.services;
 		this._diagnostics = result.diagnostics;

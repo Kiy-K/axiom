@@ -376,3 +376,164 @@ describe("PermissionGateway", () => {
 		expect(warnings[0]).toContain("audit log write failed");
 	});
 });
+
+describe("PermissionGateway mode switching", () => {
+	let dir: string;
+	let setting: PermissionMode;
+	let interactive: boolean;
+	let onAsk: (title: string, options: string[]) => string | undefined;
+
+	const make = () =>
+		new PermissionGateway({
+			getMode: () => setting,
+			getCwd: () => dir,
+			getSessionId: () => "s1",
+			getPrompter: () => ({ select: async (title, options) => onAsk(title, options) }),
+			canRequestEditTrust: () => interactive,
+		});
+	const bash = (command: string) => ({ toolName: "bash", toolCallId: "c1", input: { command } });
+	/** Pick the grant choice offered for a command, if any. */
+	const grantChoice = (options: string[]) => options.find((option) => option.startsWith("Allow for"));
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "perm-mode-"));
+		setting = "manual";
+		interactive = true;
+		onAsk = () => "Deny";
+	});
+
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("uses the session override over the setting until it is cleared", async () => {
+		const gateway = make();
+		expect(gateway.mode).toBe("manual");
+		gateway.setModeOverride("yolo");
+		expect(gateway.mode).toBe("yolo");
+		expect(await gateway.authorize(bash("ls"))).toBeUndefined();
+		gateway.setModeOverride(undefined);
+		expect(gateway.mode).toBe("manual");
+	});
+
+	it("runs auto as manual outside an interactive TUI session, and as auto (still manual rules) inside one", async () => {
+		setting = "auto";
+		const gateway = make();
+		interactive = false;
+		expect(gateway.mode).toBe("manual");
+		interactive = true;
+		expect(gateway.mode).toBe("auto");
+		// Until the positive rules exist, auto relaxes nothing: a shell command still asks.
+		let asked = 0;
+		onAsk = () => {
+			asked++;
+			return "Deny";
+		};
+		expect((await gateway.authorize(bash("ls")))?.block).toBe(true);
+		expect(asked).toBe(1);
+	});
+
+	it("clears grants and edit trust when the effective mode changes, by override or by setting", async () => {
+		const gateway = make();
+		onAsk = (_title, options) => grantChoice(options);
+		expect(await gateway.authorize(bash("ls"))).toBeUndefined();
+		expect(gateway.grants.list()).toHaveLength(1);
+		gateway.setModeOverride("accept-edits");
+		expect(gateway.grants.list()).toHaveLength(0);
+
+		onAsk = (_title, options) => grantChoice(options);
+		expect(await gateway.authorize(bash("ls"))).toBeUndefined();
+		expect(gateway.grants.list()).toHaveLength(1);
+		setting = "manual"; // the override still wins, so nothing changes
+		expect(gateway.mode).toBe("accept-edits");
+		expect(gateway.grants.list()).toHaveLength(1);
+		gateway.setModeOverride(undefined);
+		expect(gateway.grants.list()).toHaveLength(0);
+	});
+
+	it("clears grants after a manual-yolo-manual interlude that nothing asked about in between", async () => {
+		const gateway = make();
+		onAsk = (_title, options) => grantChoice(options);
+		await gateway.authorize(bash("ls"));
+		expect(gateway.grants.list()).toHaveLength(1);
+		setting = "yolo";
+		gateway.syncMode();
+		setting = "manual";
+		gateway.syncMode();
+		expect(gateway.grants.list()).toHaveLength(0);
+	});
+
+	it("denies a call whose prompt was open across a mode change, and adds no grant", async () => {
+		const gateway = make();
+		onAsk = (_title, options) => {
+			gateway.setModeOverride("accept-edits");
+			return grantChoice(options);
+		};
+		const result = await gateway.authorize(bash("ls"));
+		expect(result?.block).toBe(true);
+		expect(result?.reason).toContain("mode changed");
+		expect(gateway.grants.list()).toHaveLength(0);
+		expect(gateway.audit.tail(1)[0]).toMatchObject({ decision: "deny", source: "mode-change" });
+	});
+
+	it("carries only a tightening override into a replacement session", () => {
+		const gateway = make();
+		setting = "yolo";
+		gateway.setModeOverride("manual");
+		expect(gateway.tighteningOverride()).toBe("manual");
+		gateway.setModeOverride("auto");
+		expect(gateway.tighteningOverride()).toBe("auto");
+		setting = "manual";
+		gateway.setModeOverride("yolo");
+		expect(gateway.tighteningOverride()).toBeUndefined();
+		gateway.setModeOverride("auto");
+		expect(gateway.tighteningOverride()).toBeUndefined();
+		gateway.setModeOverride("manual");
+		expect(gateway.tighteningOverride()).toBeUndefined();
+	});
+
+	it("on reload keeps an override that is stricter than the setting and drops one that is not", () => {
+		const gateway = make();
+		setting = "yolo";
+		gateway.setModeOverride("manual");
+		gateway.onSettingsReloaded();
+		expect(gateway.mode).toBe("manual");
+		setting = "manual";
+		gateway.setModeOverride("yolo");
+		setting = "accept-edits";
+		gateway.onSettingsReloaded();
+		expect(gateway.mode).toBe("accept-edits");
+		gateway.setModeOverride("auto");
+		setting = "manual";
+		gateway.onSettingsReloaded();
+		expect(gateway.mode).toBe("manual");
+	});
+
+	it("offers no grant in auto outside a task, offers one inside it, and clears grants when the task ends", async () => {
+		setting = "auto";
+		const gateway = make();
+		const offered: string[][] = [];
+		onAsk = (_title, options) => {
+			offered.push(options);
+			return grantChoice(options) ?? "Allow once";
+		};
+		await gateway.authorize(bash("ls"));
+		expect(grantChoice(offered[0] ?? [])).toBeUndefined();
+
+		gateway.beginTask();
+		await gateway.authorize(bash("ls"));
+		expect(grantChoice(offered[1] ?? [])).toBeDefined();
+		expect(gateway.grants.list()).toHaveLength(1);
+		gateway.endTask();
+		expect(gateway.grants.list()).toHaveLength(0);
+	});
+
+	it("keeps a manual-mode grant when a task ends", async () => {
+		const gateway = make();
+		onAsk = (_title, options) => grantChoice(options);
+		gateway.beginTask();
+		await gateway.authorize(bash("ls"));
+		gateway.endTask();
+		expect(gateway.grants.list()).toHaveLength(1);
+	});
+});

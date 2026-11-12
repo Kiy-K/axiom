@@ -275,11 +275,14 @@ export const SettingsSchema = Type.Object(
 			}),
 		),
 		permissionMode: Type.Optional(
-			Type.Union([Type.Literal("yolo"), Type.Literal("manual"), Type.Literal("accept-edits")], {
-				description:
-					'Permission gateway mode. "manual" asks before edits, shell commands and tools with unknown effects, and denies protected paths. "yolo" (default) turns the gateway off. Global setting only.',
-				default: SETTINGS_DEFAULTS.permissionMode,
-			}),
+			Type.Union(
+				[Type.Literal("yolo"), Type.Literal("manual"), Type.Literal("accept-edits"), Type.Literal("auto")],
+				{
+					description:
+						'Permission gateway mode. "manual" asks before edits, shell commands and tools with unknown effects, and denies protected paths. "accept-edits" also allows trusted edits. "auto" adds positive allow rules in an interactive session and behaves as "manual" elsewhere. "yolo" (default) turns the gateway off. Global setting only.',
+					default: SETTINGS_DEFAULTS.permissionMode,
+				},
+			),
 		),
 		shellCommandPrefix: Type.Optional(
 			Type.String({ description: "Prefix prepended to every bash command, for example to enable shell aliases." }),

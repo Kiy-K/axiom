@@ -1168,6 +1168,8 @@ export class AgentSession {
 	}
 
 	private async _emitAgentSettled(): Promise<void> {
+		// First, so an extension-triggered run that follows cannot inherit this task's grants.
+		this._permissions.endTask();
 		this._cacheWarmer?.onAgentSettled();
 		this._isAgentRunActive = false;
 		this._isEmittingAgentSettled = true;
@@ -2026,7 +2028,14 @@ export class AgentSession {
 	 * starting another, and an abort requested meanwhile aborts the run as soon as it exists.
 	 * @param onStarted Called once the run's messages are prepared, before the first request.
 	 */
-	private async _startRun(trigger: BeforeAgentStartTrigger, onStarted?: () => void): Promise<void> {
+	/**
+	 * @param userTriggered False for runs an extension starts: they get no task, so in `auto` they cannot grant.
+	 */
+	private async _startRun(
+		trigger: BeforeAgentStartTrigger,
+		onStarted?: () => void,
+		userTriggered = false,
+	): Promise<void> {
 		this._isAgentRunActive = true;
 		this._agentRunAbortRequested = false;
 		let messages: AgentMessage[];
@@ -2039,6 +2048,8 @@ export class AgentSession {
 			this._resolveIdleWaitIfIdle();
 			throw error;
 		}
+		// After _prepareRun: a throwing before_agent_start handler must not leave a task open.
+		if (userTriggered) this._permissions.beginTask();
 		// Messages held while the run was starting go before its starting messages, as they would
 		// have while idle. No run exists yet, so they cannot split a tool call from its result.
 		this._flushPendingBashMessages();
@@ -2279,7 +2290,7 @@ export class AgentSession {
 		} finally {
 			this._promptPreflightCount--;
 		}
-		if (trigger) await this._startRun(trigger, () => preflightResult?.("started"));
+		if (trigger) await this._startRun(trigger, () => preflightResult?.("started"), options?.source !== "extension");
 	}
 
 	/**
@@ -3936,6 +3947,7 @@ export class AgentSession {
 				: [];
 		const previousDefaultTools = new Set(getDefaultTools());
 		await this.settingsManager.reload();
+		this._permissions.onSettingsReloaded();
 		this.syncQueueModesFromSettings();
 		resetApiProviders();
 		await this._resourceLoader.reload();

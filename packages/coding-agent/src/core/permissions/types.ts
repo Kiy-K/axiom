@@ -3,8 +3,13 @@
 /**
  * `yolo` makes the gateway a no-op. `manual` mediates actions and asks for anything that is not
  * a read inside the workspace. `accept-edits` also permits eligible edits after session trust.
+ * `auto` is `manual` plus positive allow rules (docs/axiom/p6-auto-mode-contract.md); until those rules exist it
+ * relaxes nothing.
  */
-export type PermissionMode = "yolo" | "manual" | "accept-edits";
+export type PermissionMode = "yolo" | "manual" | "accept-edits" | "auto";
+
+/** Strictest first. A mode earlier in this list is stricter than one after it. */
+export const PERMISSION_MODES_STRICTEST_FIRST: readonly PermissionMode[] = ["manual", "accept-edits", "auto", "yolo"];
 
 export type Decision = "allow" | "deny" | "ask";
 

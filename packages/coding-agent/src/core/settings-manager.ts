@@ -1037,7 +1037,7 @@ export class SettingsManager {
 		if (this.globalSettingsLoadError) return "manual";
 		const value = this.globalSettings.permissionMode;
 		if (value === undefined) return SETTINGS_DEFAULTS.permissionMode;
-		return value === "yolo" || value === "accept-edits" ? value : "manual";
+		return value === "yolo" || value === "accept-edits" || value === "auto" ? value : "manual";
 	}
 
 	/**
@@ -1047,10 +1047,11 @@ export class SettingsManager {
 	getPermissionModeNotice(): string | undefined {
 		if (this.globalSettingsLoadError) return undefined;
 		const value: unknown = this.globalSettings.permissionMode;
-		if (value === undefined || value === "yolo" || value === "manual" || value === "accept-edits") return undefined;
+		if (value === undefined || value === "yolo" || value === "manual" || value === "accept-edits" || value === "auto")
+			return undefined;
 		if (value === "unrestricted")
 			return 'permissionMode "unrestricted" was renamed "yolo"; running in "manual" mode. Set "yolo" in your global settings to turn the permission gateway off.';
-		return `permissionMode ${JSON.stringify(value).slice(0, 60)} is not recognized; running in "manual" mode. Valid values: "yolo", "manual", "accept-edits".`;
+		return `permissionMode ${JSON.stringify(value).slice(0, 60)} is not recognized; running in "manual" mode. Valid values: "yolo", "manual", "accept-edits", "auto".`;
 	}
 
 	setPermissionMode(mode: PermissionModeSetting): void {

@@ -35,6 +35,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		argumentHint: "[stop <job_id>]",
 	},
 	{
+		name: "mode",
+		description: "Show or set the permission mode for this session",
+		argumentHint: "[manual|accept-edits|auto|yolo]",
+	},
+	{
 		name: "permissions",
 		description: "Show the permission mode, active grants and recent decisions, or revoke grants",
 		argumentHint: "[revoke <grant_id>|all]",

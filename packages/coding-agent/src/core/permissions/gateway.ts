@@ -10,7 +10,14 @@ import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
 import { isRecoverableEdit } from "./recoverable-edit.ts";
 import { sanitizeForDisplay as sanitize, sanitizeForPrompt as show } from "./redact.ts";
-import type { Action, ActionVerdict, Decision, GrantScope, PermissionMode } from "./types.ts";
+import {
+	type Action,
+	type ActionVerdict,
+	type Decision,
+	type GrantScope,
+	PERMISSION_MODES_STRICTEST_FIRST,
+	type PermissionMode,
+} from "./types.ts";
 
 /** The part of the extension UI the gateway needs to ask the user. */
 export interface PermissionPrompter {
@@ -27,7 +34,7 @@ export interface PermissionGatewayOptions {
 	getSessionId: () => string;
 	/** Undefined when nobody can be asked (print mode, no UI bound): an `ask` then becomes a denial. */
 	getPrompter: () => PermissionPrompter | undefined;
-	/** Only a fresh interactive session can request edit trust. */
+	/** Only a fresh interactive TUI session can request edit trust, and only there does `auto` act as `auto`. */
 	canRequestEditTrust?: () => boolean;
 	/** Where decisions are appended as JSONL. Omit to keep them in memory only. */
 	auditFile?: string;
@@ -82,12 +89,23 @@ function clean(text: string, maxLength: number): string {
 	return sanitize(text, maxLength).replace(/\s*\n\s*/g, " | ");
 }
 
+/** Position in {@link PERMISSION_MODES_STRICTEST_FIRST}: a larger rank is a looser mode. */
+export function modeRank(mode: PermissionMode): number {
+	return PERMISSION_MODES_STRICTEST_FIRST.indexOf(mode);
+}
+
 export class PermissionGateway {
 	readonly grants = new GrantStore();
 	readonly audit: AuditLog;
 	private readonly options: PermissionGatewayOptions;
 	private editTrust?: { workspace: string; sessionId: string; accepted: boolean };
 	private editReservation?: { id: string; input: Record<string, unknown> };
+	private modeOverride?: PermissionMode;
+	private lastMode?: PermissionMode;
+	/** Counts effective-mode changes, so a prompt can tell that the mode changed while it was open. */
+	private modeGeneration = 0;
+	/** True between `beginTask` and `endTask`: a run the user started. */
+	private taskActive = false;
 	// Started and not yet ended calls per id: a provider may reuse an id, and the first end must not free the other call.
 	private readonly running = new Map<string, number>();
 
@@ -96,8 +114,62 @@ export class PermissionGateway {
 		this.audit = new AuditLog(options.auditFile);
 	}
 
+	/**
+	 * The effective mode: the session override, else the setting. `auto` is literally `manual` outside an interactive
+	 * TUI session. Every read notices a change of the effective mode and then drops all grants and edit trust, so
+	 * nothing granted under one mode outlives it.
+	 */
 	get mode(): PermissionMode {
-		return this.options.getMode();
+		const requested = this.modeOverride ?? this.options.getMode();
+		const mode = requested === "auto" && !this.options.canRequestEditTrust?.() ? "manual" : requested;
+		if (this.lastMode !== undefined && mode !== this.lastMode) {
+			this.grants.clear();
+			this.editTrust = undefined;
+			this.modeGeneration++;
+		}
+		this.lastMode = mode;
+		return mode;
+	}
+
+	/** The session override, if any. */
+	get override(): PermissionMode | undefined {
+		return this.modeOverride;
+	}
+
+	/** Set or clear the session override. Callers: the TUI's `/mode` command and session replacement. */
+	setModeOverride(mode: PermissionMode | undefined): void {
+		this.modeOverride = mode;
+		this.syncMode();
+	}
+
+	/** Notice a change of the effective mode now, even when no call is being decided. */
+	syncMode(): void {
+		void this.mode;
+	}
+
+	/** The override if it is stricter than the setting: the only kind a replacement session inherits. */
+	tighteningOverride(): PermissionMode | undefined {
+		return this.modeOverride !== undefined && modeRank(this.modeOverride) < modeRank(this.options.getMode())
+			? this.modeOverride
+			: undefined;
+	}
+
+	/** After settings reload: drop an override that is no longer stricter than the setting. */
+	onSettingsReloaded(): void {
+		if (this.modeOverride !== undefined && modeRank(this.modeOverride) >= modeRank(this.options.getMode()))
+			this.modeOverride = undefined;
+		this.syncMode();
+	}
+
+	/** A run the user started begins. Extension-started runs do not call this and get no grants in `auto`. */
+	beginTask(): void {
+		this.taskActive = true;
+	}
+
+	/** The run settled or was aborted. In `auto`, grants end with the task. */
+	endTask(): void {
+		this.taskActive = false;
+		if (this.mode === "auto") this.grants.clear();
 	}
 
 	get editTrustActive(): boolean {
@@ -279,7 +351,10 @@ export class PermissionGateway {
 		}
 
 		const grantable = pending.map((entry) => entry.verdict.grantable);
-		const grantScopes = grantable.every((scope) => scope !== undefined) ? (grantable as GrantScope[]) : undefined;
+		// In `auto`, only a run the user started can offer a grant; it ends with the task.
+		const mayGrant = this.mode !== "auto" || this.taskActive;
+		const grantScopes =
+			mayGrant && grantable.every((scope) => scope !== undefined) ? (grantable as GrantScope[]) : undefined;
 		const grantLabel = grantScopes
 			? `Allow for ${GRANT_TTL_MS / 60000} minutes: ${grantScopes.map(describeGrantScope).join(", ")}`
 			: undefined;
@@ -287,7 +362,13 @@ export class PermissionGateway {
 		const asker = call.caller === undefined ? "" : `\nExtension: ${showTail(call.caller, MAX_CALLER_CHARS)}`;
 		const title = `Permission needed: ${show(call.toolName, 100)}${asker}\n${pending.map(promptLine).join("\n")}`;
 
+		const generation = this.modeGeneration;
 		const choice = await this.ask(prompter, title, choices, signal);
+		this.syncMode();
+		if (this.modeGeneration !== generation) {
+			this.record(call, "deny", "mode-change", summary);
+			return { block: true, reason: "Blocked: the permission mode changed while the prompt was open." };
+		}
 		if (choice === undefined) {
 			this.record(call, "deny", "timeout", summary);
 			return {
