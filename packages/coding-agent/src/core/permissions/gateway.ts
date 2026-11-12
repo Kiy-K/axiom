@@ -173,7 +173,11 @@ export class PermissionGateway {
 		const choice = await this.ask(prompter, title, choices, signal);
 		if (choice === undefined) {
 			this.record(call, "deny", "timeout", summary);
-			return { block: true, reason: "Blocked: the approval prompt was dismissed or timed out." };
+			return {
+				block: true,
+				reason:
+					"Blocked: the approval prompt was dismissed or expired. This is not a transient error; do not retry.",
+			};
 		}
 		if (choice === ALLOW_ONCE || choice === grantLabel) {
 			const grantIds =

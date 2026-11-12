@@ -1990,6 +1990,8 @@ pi.events.emit("my:event", { ... });
 
 Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.
 
+With `permissionMode: "manual"`, a `!command` value in the `apiKey` (when no credential is stored), the provider `headers` or a model's `headers` asks the permission gateway before it runs, and the prompt names your extension. An allow is remembered for 30 seconds per command, and identical concurrent asks share one prompt, because credentials resolve on every request. With no UI bound a call that needs a command value fails. A refusal rejects the resolution with the reason. Literal and `$ENV` values are not asked about, nor are commands in the user's `models.json`.
+
 Calls made during the extension factory function are queued and applied once the runner initialises. Calls made after that — for example from a command handler following a user setup flow — take effect immediately without requiring a `/reload`.
 
 Dynamic providers can implement `refreshModels`. Pi calls it during model refresh, publishes the returned list synchronously through the provider, and passes the canonical credential/stored-catalog/network/signal context. The extension decides whether to persist catalog metadata through generation-checked `context.publish({ persist: entry })`; live servers such as llama.cpp can return models without persisting them.

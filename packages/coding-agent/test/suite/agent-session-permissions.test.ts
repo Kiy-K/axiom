@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV_AGENT_DIR } from "../../src/config.ts";
+import { createAgentSessionServices } from "../../src/core/agent-session-services.ts";
 import type { ExecOptions } from "../../src/core/exec.ts";
 import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
 import { createHarness, createTestUiContext, getMessageText, getToolResult, type Harness } from "./harness.ts";
@@ -342,5 +343,276 @@ describe("AgentSession permission gateway", () => {
 		harness.setResponses(callBash("echo default-mode"));
 		await harness.session.prompt("go");
 		expect(getMessageText(getToolResult(harness, "bash"))).toContain("default-mode");
+	});
+});
+
+describe("AgentSession permission gateway and provider !command values", () => {
+	const harnesses: Harness[] = [];
+	let agentDir: string;
+
+	beforeEach(() => {
+		agentDir = mkdtempSync(join(tmpdir(), "perm-provider-"));
+		vi.stubEnv(ENV_AGENT_DIR, agentDir);
+	});
+
+	afterEach(() => {
+		while (harnesses.length > 0) harnesses.pop()?.cleanup();
+		vi.unstubAllEnvs();
+		rmSync(agentDir, { recursive: true, force: true });
+	});
+
+	const marker = (name: string) => join(agentDir, name);
+	/** A `!command` value that leaves a file behind when it runs, so a test can tell whether it did. */
+	const touching = (name: string, output: string) => `!touch ${marker(name)} && echo ${output}`;
+
+	const acme = (overrides: Record<string, unknown>) => ({
+		baseUrl: "http://acme.invalid",
+		api: "openai-completions",
+		models: [
+			{
+				id: "m",
+				name: "m",
+				reasoning: false,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 1000,
+				maxTokens: 100,
+			},
+		],
+		...overrides,
+	});
+
+	async function setup(options: {
+		manual?: boolean;
+		provider?: Record<string, unknown>;
+		modelsJson?: unknown;
+		answer?: () => string;
+	}) {
+		const prompts: string[] = [];
+		const harness = await createHarness({
+			...(options.manual === false ? {} : { settings: { permissionMode: "manual" as const } }),
+			...(options.modelsJson === undefined ? {} : { modelsJson: options.modelsJson as never }),
+			extensionFactories: options.provider
+				? [(pi: ExtensionAPI) => pi.registerProvider("acme", options.provider as never)]
+				: [],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({
+			uiContext: createTestUiContext({
+				select: async (title) => {
+					prompts.push(title);
+					return options.answer?.() ?? "Deny";
+				},
+			}),
+		});
+		return { harness, prompts, runtime: harness.session.modelRuntime };
+	}
+
+	it("asks before an extension provider's apiKey and header commands run, naming the extension", async () => {
+		const { prompts, runtime } = await setup({
+			provider: acme({ apiKey: touching("key", "keyval"), headers: { "X-T": touching("hdr", "hdrval") } }),
+			answer: () => "Deny",
+		});
+		await expect(runtime.getAuth("acme")).rejects.toThrow("user denied");
+		expect(prompts[0]).toContain("Permission needed: pi.exec");
+		expect(prompts[0]).toContain("Extension: <inline:");
+		expect(prompts[0]).toContain("sh -c");
+		// Denied: neither command ran.
+		expect(existsSync(marker("key"))).toBe(false);
+		expect(existsSync(marker("hdr"))).toBe(false);
+	});
+
+	it("runs the commands once the user allows them, and uses their output", async () => {
+		const { prompts, runtime } = await setup({
+			provider: acme({ apiKey: touching("key", "keyval"), headers: { "X-T": touching("hdr", "hdrval") } }),
+			answer: () => "Allow once",
+		});
+		const auth = await runtime.getAuth("acme");
+		expect(prompts).toHaveLength(2);
+		expect(auth?.auth.apiKey).toBe("keyval");
+		expect(auth?.auth.headers).toMatchObject({ "X-T": "hdrval" });
+		expect(existsSync(marker("key"))).toBe(true);
+		expect(existsSync(marker("hdr"))).toBe(true);
+	});
+
+	it("asks about the headers of an extension's model before a request resolves them", async () => {
+		const models = acme({}).models.map((model) => ({ ...model, headers: { "X-M": touching("model", "modelval") } }));
+		const { prompts, runtime } = await setup({
+			provider: acme({ apiKey: "literal-key", models }),
+			answer: () => "Deny",
+		});
+		const model = runtime.getModel("acme", "m");
+		if (!model) throw new Error("model not registered");
+		await expect(runtime.getAuth(model)).rejects.toThrow("user denied");
+		expect(prompts.join("\n")).toContain("touch");
+		expect(existsSync(marker("model"))).toBe(false);
+	});
+
+	it("asks before the fallback request config runs an extension's header command", async () => {
+		const { prompts, runtime } = await setup({
+			provider: acme({ apiKey: "literal-key", headers: { "X-C": touching("compat", "compatval") } }),
+			answer: () => "Deny",
+		});
+		const model = runtime.getModel("acme", "m");
+		if (!model) throw new Error("model not registered");
+		await expect(runtime.getCompatibilityRequestConfig(model)).rejects.toThrow("user denied");
+		expect(prompts).toHaveLength(1);
+		expect(existsSync(marker("compat"))).toBe(false);
+	});
+
+	it("asks before an OAuth extension provider's header command runs", async () => {
+		const { harness, prompts, runtime } = await setup({
+			provider: acme({
+				oauth: {
+					name: "Acme",
+					login: async () => ({ access: "a", refresh: "r", expires: Date.now() + 3_600_000 }),
+					refreshToken: async (credentials: unknown) => credentials,
+					getApiKey: (credentials: { access: string }) => credentials.access,
+				},
+				headers: { "X-O": touching("oauth", "oauthval") },
+			}),
+			answer: () => "Deny",
+		});
+		await harness.authStorage.modify("acme", async () => ({
+			type: "oauth",
+			access: "a",
+			refresh: "r",
+			expires: Date.now() + 3_600_000,
+		}));
+		await expect(runtime.getAuth("acme")).rejects.toThrow("user denied");
+		expect(prompts).toHaveLength(1);
+		expect(existsSync(marker("oauth"))).toBe(false);
+	});
+
+	it("does not ask about literal values, or about commands in the user's own models.json", async () => {
+		const { prompts, runtime } = await setup({
+			provider: acme({ apiKey: "literal-key", headers: { "X-L": "literal" } }),
+			modelsJson: {
+				providers: {
+					mine: {
+						baseUrl: "http://mine.invalid",
+						api: "openai-completions",
+						apiKey: touching("user", "userkey"),
+						models: [{ id: "m" }],
+					},
+				},
+			},
+		});
+		expect((await runtime.getAuth("acme"))?.auth.apiKey).toBe("literal-key");
+		expect((await runtime.getAuth("mine"))?.auth.apiKey).toBe("userkey");
+		expect(prompts).toEqual([]);
+		expect(existsSync(marker("user"))).toBe(true);
+	});
+
+	it("names the extension for a provider registered while extensions load, as the CLI registers it", async () => {
+		const services = await createAgentSessionServices({
+			cwd: agentDir,
+			agentDir,
+			resourceLoaderOptions: {
+				extensionFactories: [
+					(pi: ExtensionAPI) => pi.registerProvider("acme", acme({ apiKey: touching("key", "keyval") }) as never),
+				],
+				noSkills: true,
+				noPromptTemplates: true,
+				noThemes: true,
+			},
+		});
+		const callers: string[] = [];
+		services.modelRuntime.addExecAuthorizer(async (_command, _args, caller) => {
+			callers.push(caller);
+			throw new Error("refused");
+		});
+		await expect(services.modelRuntime.getAuth("acme")).rejects.toThrow("refused");
+		expect(callers).toHaveLength(1);
+		expect(callers[0]).toMatch(/^<inline:/);
+		expect(existsSync(marker("key"))).toBe(false);
+	});
+
+	it("does not ask about header commands of a provider that has no credential to send them with", async () => {
+		const { prompts, runtime } = await setup({
+			provider: acme({ headers: { "X-H": touching("hdr", "hdrval") } }),
+			answer: () => "Deny",
+		});
+		expect(await runtime.getAuth("acme")).toBeUndefined();
+		expect(prompts).toEqual([]);
+		expect(existsSync(marker("hdr"))).toBe(false);
+	});
+
+	it("passes the caller's abort signal to the check", async () => {
+		const models = acme({}).models.map((model) => ({ ...model, headers: { "X-M": touching("model", "v") } }));
+		const { runtime } = await setup({ manual: false, provider: acme({ apiKey: "literal-key", models }) });
+		const seen: Array<AbortSignal | undefined> = [];
+		runtime.addExecAuthorizer(async (_command, _args, _caller, signal) => {
+			seen.push(signal);
+		});
+		const model = runtime.getModel("acme", "m");
+		if (!model) throw new Error("model not registered");
+		const controller = new AbortController();
+		await runtime.getAuth(model, { signal: controller.signal });
+		expect(seen).toEqual([controller.signal]);
+	});
+
+	it("needs every installed check to allow, so another session's check cannot switch this one off", async () => {
+		const { harness, prompts, runtime } = await setup({
+			provider: acme({ apiKey: touching("key", "keyval") }),
+			answer: () => "Deny",
+		});
+		const removeOther = runtime.addExecAuthorizer(async () => {});
+		await expect(runtime.getAuth("acme")).rejects.toThrow("user denied");
+		expect(prompts).toHaveLength(1);
+		expect(existsSync(marker("key"))).toBe(false);
+		// Disposing the session takes its check away; the other one alone then allows.
+		harness.session.dispose();
+		expect((await runtime.getAuth("acme"))?.auth.apiKey).toBe("keyval");
+		removeOther();
+	});
+
+	it("shares one prompt between concurrent resolutions of the same command", async () => {
+		const { runtime } = await setup({ manual: false, provider: acme({ apiKey: touching("key", "keyval") }) });
+		const answer = Promise.withResolvers<void>();
+		let asked = 0;
+		runtime.addExecAuthorizer(() => {
+			asked++;
+			return answer.promise;
+		});
+		const both = Promise.all([runtime.getAuth("acme"), runtime.getAuth("acme")]);
+		await vi.waitFor(() => expect(asked).toBe(1));
+		answer.resolve();
+		const [first, second] = await both;
+		expect([first?.auth.apiKey, second?.auth.apiKey]).toEqual(["keyval", "keyval"]);
+		expect(asked).toBe(1);
+	});
+
+	it("remembers an allow for a short time, and never a refusal", async () => {
+		const allowed = await setup({
+			provider: acme({ apiKey: touching("key", "keyval") }),
+			answer: () => "Allow once",
+		});
+		await allowed.runtime.getAuth("acme");
+		await allowed.runtime.getAuth("acme");
+		expect(allowed.prompts).toHaveLength(1);
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now + 31_000);
+		try {
+			await allowed.runtime.getAuth("acme");
+		} finally {
+			clock.mockRestore();
+		}
+		expect(allowed.prompts).toHaveLength(2);
+
+		const denied = await setup({ provider: acme({ apiKey: touching("key2", "v") }), answer: () => "Deny" });
+		await expect(denied.runtime.getAuth("acme")).rejects.toThrow("user denied");
+		await expect(denied.runtime.getAuth("acme")).rejects.toThrow("user denied");
+		expect(denied.prompts).toHaveLength(2);
+	});
+
+	it("is a no-op in unrestricted mode: the commands run, with no prompt and no audit entry", async () => {
+		const { harness, prompts, runtime } = await setup({
+			manual: false,
+			provider: acme({ apiKey: touching("key", "keyval") }),
+		});
+		expect((await runtime.getAuth("acme"))?.auth.apiKey).toBe("keyval");
+		expect(prompts).toEqual([]);
+		expect(harness.session.permissions.audit.tail(5)).toEqual([]);
 	});
 });

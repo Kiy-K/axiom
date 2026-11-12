@@ -77,6 +77,8 @@ import {
 	type CompatibilityRequestConfig,
 	composeModelProvider,
 	configuredRequestAuthStatus,
+	extensionModelCommands,
+	extensionRequestCommands,
 	type ProviderConfigInput,
 	resolveCompatibilityRequestConfig,
 	resolveConfiguredModelHeaders,
@@ -170,6 +172,17 @@ function mergeHeaders(
 	return merged;
 }
 
+/** Resolves when the harness may run the shell command for the extension at `caller`; rejects with the reason when not. */
+/** How long an allowed provider `!command` is not asked about again. */
+const EXEC_ALLOW_REMEMBER_MS = 30_000;
+
+export type ProviderExecAuthorizer = (
+	command: string,
+	args: string[],
+	caller: string,
+	signal?: AbortSignal,
+) => Promise<void>;
+
 /** Configured pi-ai Models collection used by coding-agent and SDK consumers. */
 export class ModelRuntime implements Models {
 	private readonly models: MutableModels;
@@ -178,6 +191,14 @@ export class ModelRuntime implements Models {
 	private readonly builtins = new Map<string, Provider>();
 	private readonly nativeExtensionProviders = new Map<string, Provider>();
 	private readonly extensionProviders = new Map<string, ProviderConfigInput>();
+	/** The extension that last registered each provider, shown when its `!command` values ask for permission. */
+	private readonly extensionProviderOwners = new Map<string, string>();
+	/** Every installed check; a command runs only when all of them allow it. */
+	private readonly execAuthorizers = new Set<ProviderExecAuthorizer>();
+	/** Commands the checks allowed lately, by provider and body, and when that stops counting. */
+	private readonly execAllowedUntil = new Map<string, number>();
+	/** Asks in flight, so concurrent resolutions of one command share one prompt. */
+	private readonly execPending = new Map<string, Promise<void>>();
 	/** Virtual models by provider id, then model id. */
 	private readonly virtualModels = new Map<string, Map<string, RegisteredVirtualModel>>();
 	private readonly compositionErrors = new Map<string, string>();
@@ -315,7 +336,9 @@ export class ModelRuntime implements Models {
 			return base;
 		}
 		try {
-			const provider = composeModelProvider(providerId, base, this.config, extension);
+			const provider = composeModelProvider(providerId, base, this.config, extension, (bodies, signal) =>
+				this.authorizeCommands(providerId, bodies, signal),
+			);
 			this.compositionErrors.delete(providerId);
 			return provider;
 		} catch (error) {
@@ -532,8 +555,51 @@ export class ModelRuntime implements Models {
 		return this.nativeExtensionProviders.get(providerId);
 	}
 
+	/**
+	 * Install a check that runs before the harness executes a `!command` value an extension supplied for a provider
+	 * (`apiKey`, `headers`, model `headers`). Values from models.json are not asked about. Providers read the checks
+	 * when they resolve credentials, so a check applies to providers composed before it was added. Every installed
+	 * check must allow a command, so sessions that share this runtime cannot switch each other's check off. Returns
+	 * the function that removes it again.
+	 */
+	addExecAuthorizer(authorizer: ProviderExecAuthorizer): () => void {
+		this.execAuthorizers.add(authorizer);
+		// A new check has not judged the commands the others allowed.
+		this.execAllowedUntil.clear();
+		return () => {
+			this.execAuthorizers.delete(authorizer);
+		};
+	}
+
+	private async authorizeCommands(providerId: string, bodies: string[], signal?: AbortSignal): Promise<void> {
+		if (this.execAuthorizers.size === 0) return;
+		const caller = this.extensionProviderOwners.get(providerId) ?? `provider ${providerId}`;
+		for (const body of bodies) await this.authorizeCommand(providerId, caller, body, signal);
+	}
+
+	/**
+	 * One command. A resolution of credentials asks about several commands, and requests and warm-ups resolve them
+	 * again and again, so an allow counts for {@link EXEC_ALLOW_REMEMBER_MS} and identical asks in flight share one
+	 * prompt. A refusal is never remembered. The shared prompt follows the signal of the first caller.
+	 */
+	private authorizeCommand(providerId: string, caller: string, body: string, signal?: AbortSignal): Promise<void> {
+		const key = `${providerId}\0${caller}\0${body}`;
+		if ((this.execAllowedUntil.get(key) ?? 0) > Date.now()) return Promise.resolve();
+		let pending = this.execPending.get(key);
+		if (!pending) {
+			pending = (async () => {
+				for (const authorize of [...this.execAuthorizers]) await authorize("sh", ["-c", body], caller, signal);
+				this.execAllowedUntil.set(key, Date.now() + EXEC_ALLOW_REMEMBER_MS);
+			})().finally(() => this.execPending.delete(key));
+			this.execPending.set(key, pending);
+		}
+		return pending;
+	}
+
 	/** @internal Compatibility fallback for ModelRegistry when provider auth is unconfigured. */
-	getCompatibilityRequestConfig(model: Model<Api>): CompatibilityRequestConfig {
+	async getCompatibilityRequestConfig(model: Model<Api>): Promise<CompatibilityRequestConfig> {
+		const extension = this.extensionProviders.get(model.provider);
+		await this.authorizeCommands(model.provider, extensionRequestCommands(model, extension));
 		return resolveCompatibilityRequestConfig(
 			model,
 			this.config.getProvider(model.provider),
@@ -562,6 +628,11 @@ export class ModelRuntime implements Models {
 		if (typeof providerOrModel === "string") return this.models.getAuth(providerOrModel, overrides);
 		const resolution = await this.models.getAuth(providerOrModel, overrides);
 		if (!resolution) return undefined;
+		await this.authorizeCommands(
+			providerOrModel.provider,
+			extensionModelCommands(providerOrModel, this.extensionProviders.get(providerOrModel.provider)),
+			overrides.signal,
+		);
 		const configuredHeaders = resolveConfiguredModelHeaders(
 			providerOrModel,
 			this.config.getProvider(providerOrModel.provider),
@@ -962,7 +1033,7 @@ export class ModelRuntime implements Models {
 		};
 	}
 
-	registerProvider(providerId: string, config: ProviderConfigInput): void {
+	registerProvider(providerId: string, config: ProviderConfigInput, extensionPath?: string): void {
 		// Validate the incoming registration on its own, like the legacy registry:
 		// a broken re-registration must throw without touching the stored config.
 		validateExtensionProvider(providerId, this.builtins.get(providerId), this.config.getProvider(providerId), config);
@@ -975,6 +1046,7 @@ export class ModelRuntime implements Models {
 			if (value !== undefined) (effective as Record<string, unknown>)[key] = value;
 		}
 		this.extensionProviders.set(providerId, effective);
+		if (extensionPath !== undefined) this.extensionProviderOwners.set(providerId, extensionPath);
 		this.recomposeProvider(providerId);
 		this.updateModelSnapshot();
 		this.markProvisionallyConfigured(
@@ -987,6 +1059,7 @@ export class ModelRuntime implements Models {
 
 	unregisterProvider(providerId: string): void {
 		this.extensionProviders.delete(providerId);
+		this.extensionProviderOwners.delete(providerId);
 		this.nativeExtensionProviders.delete(providerId);
 		this.recomposeProvider(providerId);
 		this.updateModelSnapshot();

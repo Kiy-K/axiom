@@ -425,6 +425,8 @@ export class AgentSession {
 
 	// Event subscription state
 	private _unsubscribeAgent?: () => void;
+	/** Removes this session's check on provider `!command` values from the shared model runtime. */
+	private _removeExecAuthorizer?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
 	private _promptPreflightCount = 0;
@@ -548,6 +550,18 @@ export class AgentSession {
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
 		this._modelRuntime = config.modelRuntime;
+		// `!command` values an extension gave a provider run when credentials resolve, outside any tool call.
+		// The runtime outlives sessions and may be shared: each session adds its own check, all must allow, and
+		// dispose removes it. The command runs in process.cwd(), which is the session directory in the CLI; the
+		// gateway is told the session directory.
+		this._removeExecAuthorizer = this._modelRuntime.addExecAuthorizer(async (command, args, caller, signal) => {
+			const blocked = await this._permissions.authorizeExec(command, args, {
+				cwd: this.sessionManager.getCwd(),
+				extensionPath: caller,
+				signal,
+			});
+			if (blocked) throw new Error(blocked.reason);
+		});
 		this._cacheWarmer = config.cacheWarmer;
 		if (this._cacheWarmer) {
 			this._cacheWarmer.onWarmed = (entry) => this._emit({ type: "entry_appended", entry });
@@ -1496,6 +1510,7 @@ export class AgentSession {
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
 		);
 		this._disconnectFromAgent();
+		this._removeExecAuthorizer?.();
 		this._eventListeners = [];
 		if (this._cacheWarmer) {
 			this._cacheWarmer.onWarmed = undefined;
@@ -3686,8 +3701,8 @@ export class AgentSession {
 				getCallableTools: () => this._getCallableTools(),
 			},
 			{
-				registerProvider: (name, config) => {
-					this._modelRuntime.registerProvider(name, config);
+				registerProvider: (name, config, extensionPath) => {
+					this._modelRuntime.registerProvider(name, config, extensionPath);
 					this._refreshCurrentModelFromRegistry();
 				},
 				registerNativeProvider: (provider) => {

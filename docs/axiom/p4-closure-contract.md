@@ -2,7 +2,7 @@
 
 Roadmap issue [#1](https://github.com/Kiy-K/axiom/issues/1), phase P4. Paths are relative to `packages/coding-agent/src/`. Builds on [permissions.md](permissions.md).
 
-**Status:** revision 2. D3, D4 and D5 are implemented. A fresh-context review of D3 found one blocker (the OAuth client secret command ran at sign-in and refresh without a prompt) and several smaller gaps; they are fixed, and the provider route below is carried over. Roadmap item 1 is **not** closed: it needs the provider route gated or a decision to accept it as not mediated. Written from the code at `0f394fb`. Next step is the fresh-context review, then implementation.
+**Status:** revision 2. D3, D4 and D5 are implemented. A fresh-context review of D3 found one blocker (the OAuth client secret command ran at sign-in and refresh without a prompt) and several smaller gaps; they are fixed. The provider route is gated in D7. D7 had its own review, and a final review of all four commits found no blocker; its high and medium findings are fixed or listed in Carry-over (revision 3). Written from the code at `0f394fb`.
 
 ## Problem
 
@@ -20,7 +20,7 @@ Item 1 cannot be met literally without a sandbox: an extension runs in-process a
 
 The gateway is authoritative for every route where input chosen by the **model or an extension** selects what runs. A route chosen by the **user** or by **trusted configuration** is outside it, recorded in the table below with the control that applies. Code an extension runs by itself is outside any in-process gate (P7).
 
-Inventory, from a search of `spawn`/`exec` call sites and the dispatch paths. Rows marked "verify" were classified from a quick read and must be checked in the implementation.
+Inventory, from a search of `spawn`/`exec` call sites and the dispatch paths. Every row was checked against the code by two fresh-context reviews; the one row they could not confirm end to end is marked.
 
 | Route | Who chooses what runs | Class | Control |
 |---|---|---|---|
@@ -29,14 +29,14 @@ Inventory, from a search of `spawn`/`exec` call sites and the dispatch paths. Ro
 | `pi.exec` (`core/extensions/loader.ts`) | extension | gated | gateway (done, `0f394fb`) |
 | User `!`/`!!` in the TUI (`modes/interactive/interactive-mode.ts`) and RPC `bash` (`modes/rpc/rpc-mode.ts`) | user (RPC: its client) | exempt | recorded as `user-command`; see D2 |
 | `axiom install/update` (`package-manager-cli.ts`) | user | exempt | user command |
-| Missing packages installed while resolving settings (`core/package-manager.ts:installMissing`) | settings file | trust-gated (verify) | project trust for project settings; not the gateway |
+| Missing packages installed while resolving settings (`core/package-manager.ts:installMissing`) | settings file | trust-gated | project trust for project settings; not the gateway |
 | MCP stdio servers, scope `global` (`extensions/mcp/runtime.ts:createDefaultTransport`) | user's `mcp.json` | exempt | user-authored config |
 | MCP stdio servers, scope `project` | project `mcp.json` | trust-gated | project trust |
+| `!command` apiKey, headers and model headers of providers an extension registers (`core/provider-composer.ts`) | extension | **gated (new, D7)** | gateway via a `ModelRuntime` hook |
 | MCP stdio servers, scope `extension` | extension via `registerMcpServer` | **gated (new, D3)** | gateway |
-| `!command` apiKey and headers of providers an extension registers (`core/provider-composer.ts`); `auth.provider` on an extension's MCP server | extension | **gap** | none yet; see Carry-over |
-| `!cmd` config values (`core/resolve-config-value.ts`) | settings, `models.json`, `mcp.json` env | trust-gated (verify) | project trust |
+| `!cmd` config values (`core/resolve-config-value.ts`) | settings, `models.json`, `mcp.json` env | trust-gated | project trust |
 | Codemode `models.*` (`extensions/codemode/execute.ts`) | model-written script | not mediated | sends script-chosen content to a configured provider only; the `codemode` tool itself asks by name |
-| Fixed-argv helpers (`footer-data-provider.ts` git, `utils/tools-manager.ts`, clipboard, open-browser, external editor) | harness | exempt (verify) | no model- or extension-controlled argv |
+| Fixed-argv helpers (`footer-data-provider.ts` git, `utils/tools-manager.ts`, clipboard, open-browser, external editor) | harness | exempt | no model- or extension-controlled argv |
 | Extension code using `node:child_process`, `createBashTool`, `createLocalBashOperations` | extension | not mediated | P7 |
 | Opaque shell contents, TOCTOU on paths | model | not mediated | P7; a shell command still asks |
 
@@ -75,7 +75,7 @@ Ticked when all of this holds:
 
 - D3, D4 and D5 are implemented with the tests below.
 - `permissions.md` carries the D1 inventory in place of the free-text "Not mediated" list.
-- Fail-closed is shown for every built-in tool name: called with empty input `{}` in `manual` mode, none returns allow.
+- Fail-closed is shown for every name in `allToolNames`: called with empty input `{}` in `manual` mode, none returns allow. `job` is not in that set; `job {}` is allowed by design because it has no effect, and only `send_input` is judged.
 - A fresh-context reviewer, given the issue and the code, has attacked the final state, and every high and medium finding is fixed or listed as open.
 
 The default stays `unrestricted`. Changing it is P5. Ticking the gate means the mechanism meets its stated bounds, not that the default is safe.
@@ -115,9 +115,18 @@ One commit per decision: MCP spawn gate, log-page stripping, audit rotation, doc
 3. Does D4's argument ("the model could print it") still hold for a job that started before a permission was revoked?
 4. Is single-generation 5 MiB rotation enough, or can an attacker use rotation to evict the record of an earlier decision?
 
+### D7. Extension-registered provider `!command` values ask before they run
+
+`ModelRuntime.addExecAuthorizer(authorizer)` adds a check that runs before the harness executes a `!command` value an extension gave a provider. Each `AgentSession` adds its own in its constructor, as `gateway.authorizeExec("sh", ["-c", body], { extensionPath })`, and removes it on dispose. The runtime outlives sessions and may be shared, so every installed check must allow a command. An allow is remembered for 30 seconds per provider, extension and command, a new check clears that memory, identical asks in flight share one prompt, and a refusal is never remembered. The bodies come from the extension's own config only (`extension.apiKey` when no credential is stored, `extension.headers`, the extension's model `headers`), never from `models.json`. It is asked at the three places the harness resolves them: `composeApiKeyAuth.resolve`, `composeOAuthAuth.toAuth`, and the per-model header resolution in `ModelRuntime.getAuth` and `getCompatibilityRequestConfig` (now async). The registering extension's path is threaded from `pi.registerProvider` through `ExtensionRunner.bindCore` and `ModelRegistry.registerProvider` into `ModelRuntime`. A refusal rejects the resolution, and no command runs.
+
+Known limit: a runtime without a session has no check and runs the commands unasked; the CLI loads no extensions in session-less commands, so it is not affected. Not done: a native `Provider` object registered by an extension is extension code and is not asked about.
+
 ## Carry-over
 
-- **Extension-registered provider `!command` values.** `pi.registerProvider({ apiKey: "!cmd", headers })` makes the harness run an extension-chosen shell command in `provider-composer.ts` (`resolve`, async, via `resolveConfigValueOrThrow`). It is the one remaining route where an extension chooses what the harness runs and the gateway is not asked. Closing it means a gateway hook in `ModelRuntime` and a decision on what to do for `models.json` values (user config: exempt). `auth.provider` on an extension's MCP server reads a provider key, which may run such a command, and sends it to an extension-chosen URL; gate it with the same hook or document it as in-process extension code.
+- **Fixed (was medium): SDK sessions sharing one `ModelRuntime`.** Each session adds a check and all must allow; dispose removes it.
+- **Fixed (was medium): prompt volume for provider commands.** An allow is remembered for 30 seconds and identical in-flight asks share one prompt. Left: a command with a named risk still asks every 30 seconds, an OAuth-path prompt has no abort signal, and the prompt has no queue across different commands. Cache warm-up timing was not verified.
+- **Low: attribution.** Provider registrations merge, but the prompt names the extension that registered last, so a command another extension set can be shown under the wrong name.
+- **Low: judged shell and directory.** The harness runs a `!command` through the platform default shell in `process.cwd()`; the gateway judges `sh -c <body>`. See Windows below.
 - **Windows.** `!command` values run through the default shell or the configured one, while the gateway judges them as `sh -c <body>`; cross-spawn may route `.cmd` shims through cmd.exe. The POSIX lexical classifier may misjudge them there. Not verified.
 - **Prompt volume.** A server with N `!command` values asks N+1 times in a row. Grouping them into one prompt is not done.
-- **OAuth authorization URL scheme.** `openBrowser(authorizationUrl.href)` (`extensions/mcp/index.ts`, `cli.ts`) hands a URL from a server's OAuth discovery to `xdg-open`, `open` or `rundll32` with no check that it is `http(s)`. I found no check in `packages/mcp/src/oauth`; not tested. A server an extension registered chooses that URL. Fix: reject other schemes where the URL is built.
+- **OAuth authorization URL scheme: closed.** `packages/mcp/src/oauth/flow.ts` rejects a non-http(s) authorization endpoint before the URL reaches `openBrowser` (tested in `packages/mcp/test/oauth.test.ts`). An earlier note here said no check existed; that was wrong.

@@ -137,7 +137,7 @@ describe("PermissionGateway", () => {
 	it("treats a dismissed or timed-out prompt as a denial", async () => {
 		const gateway = make();
 		answers = [undefined];
-		expect((await gateway.authorize(call("bash", { command: "ls" })))?.reason).toContain("timed out");
+		expect((await gateway.authorize(call("bash", { command: "ls" })))?.reason).toContain("expired");
 		expect(gateway.audit.tail(1)[0]).toMatchObject({ decision: "deny", source: "timeout" });
 	});
 
@@ -265,7 +265,7 @@ describe("PermissionGateway", () => {
 			promptTimeoutMs: 30,
 		});
 		const timedOut = await gateway.authorize(call("bash", { command: "ls" }));
-		expect(timedOut?.reason).toContain("timed out");
+		expect(timedOut?.reason).toContain("expired");
 		expect(gateway.audit.tail(1)[0]).toMatchObject({ decision: "deny", source: "timeout" });
 
 		const controller = new AbortController();

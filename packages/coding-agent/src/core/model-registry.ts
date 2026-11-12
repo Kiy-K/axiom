@@ -90,7 +90,7 @@ export class ModelRegistry {
 		try {
 			const resolution = await this.runtime.getAuth(model);
 			if (!resolution) {
-				const compatibility = this.runtime.getCompatibilityRequestConfig(model);
+				const compatibility = await this.runtime.getCompatibilityRequestConfig(model);
 				if (compatibility.authHeader) {
 					return { ok: false, error: `No API key found for "${model.provider}"` };
 				}
@@ -208,11 +208,11 @@ export class ModelRegistry {
 	}
 
 	registerProvider(provider: Provider): void;
-	registerProvider(providerName: string, config: ProviderConfigInput): void;
-	registerProvider(providerOrName: Provider | string, config?: ProviderConfigInput): void {
+	registerProvider(providerName: string, config: ProviderConfigInput, extensionPath?: string): void;
+	registerProvider(providerOrName: Provider | string, config?: ProviderConfigInput, extensionPath?: string): void {
 		if (typeof providerOrName === "string") {
 			if (!config) throw new Error("Provider config is required when registering by name");
-			this.runtime.registerProvider(providerOrName, config);
+			this.runtime.registerProvider(providerOrName, config, extensionPath);
 			return;
 		}
 		this.runtime.registerNativeProvider(providerOrName);

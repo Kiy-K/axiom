@@ -376,6 +376,35 @@ function adaptOAuth(config: ExtensionOAuthConfig): OAuthAuth {
 	};
 }
 
+/**
+ * Asks whether the harness may run these `!command` config values (shell bodies) an extension supplied; rejects to
+ * refuse. Values from models.json are the user's own config and are never passed to it.
+ */
+export type CommandAuthorizer = (bodies: string[], signal?: AbortSignal) => Promise<void>;
+
+/** The shell bodies among config values: the harness runs each one to get the value. */
+function commandBodies(values: readonly (string | undefined)[]): string[] {
+	return values.flatMap((value) => (value !== undefined && isCommandConfigValue(value) ? [value.slice(1)] : []));
+}
+
+/** Shell bodies of an extension's provider-level `headers`, which `resolveHeadersOrThrow` runs. */
+function extensionHeaderCommands(extension: ProviderConfigInput | undefined): string[] {
+	return commandBodies(Object.values(extension?.headers ?? {}));
+}
+
+/** Shell bodies of the headers an extension gave one of its models. */
+export function extensionModelCommands(model: AnyModel, extension: ProviderConfigInput | undefined): string[] {
+	const definition = extension?.models?.find(
+		(entry) => (entry.type ?? "chat") === (model.type ?? "chat") && entry.id === model.id,
+	);
+	return commandBodies(Object.values(definition?.headers ?? {}));
+}
+
+/** Shell bodies of an extension's provider headers and the headers of its definition of `model`. */
+export function extensionRequestCommands(model: AnyModel, extension: ProviderConfigInput | undefined): string[] {
+	return [...extensionHeaderCommands(extension), ...extensionModelCommands(model, extension)];
+}
+
 function withConfiguredAuth(
 	auth: ModelAuth,
 	headers: Record<string, string> | undefined,
@@ -424,6 +453,7 @@ function composeApiKeyAuth(
 	base: Provider | undefined,
 	config: ModelsJsonProvider | undefined,
 	extension: ProviderConfigInput | undefined,
+	authorize: CommandAuthorizer,
 ): ApiKeyAuth | undefined {
 	const inherited = base?.auth.apiKey;
 	const rawKey = configuredApiKey(config, extension);
@@ -460,6 +490,11 @@ function composeApiKeyAuth(
 			return resolved ? { type: "api_key", source: resolved.source } : undefined;
 		},
 		resolve: async (input) => {
+			// Ask before each command runs: the extension's key command (used only without a stored credential) first,
+			// the header commands only once there is a credential for them to go with.
+			if (!input.credential && extension?.apiKey !== undefined) {
+				await authorize(commandBodies([extension.apiKey]), input.signal);
+			}
 			let result: AuthResult | undefined;
 			if (input.credential) {
 				result = inherited
@@ -477,6 +512,7 @@ function composeApiKeyAuth(
 				result = await inherited?.resolve(input);
 			}
 			if (!result) return undefined;
+			await authorize(extensionHeaderCommands(extension), input.signal);
 			const explicitEnv = { ...(input.credential?.env ?? {}), ...(result.env ?? {}) };
 			const headerEnv = await configContextEnv(Object.values(rawHeaders ?? {}), input.ctx, explicitEnv);
 			const headers = resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, headerEnv);
@@ -490,6 +526,7 @@ function composeOAuthAuth(
 	base: Provider | undefined,
 	config: ModelsJsonProvider | undefined,
 	extension: ProviderConfigInput | undefined,
+	authorize: CommandAuthorizer,
 ): OAuthAuth | undefined {
 	const oauth = extension?.oauth ? adaptOAuth(extension.oauth) : base?.auth.oauth;
 	if (!oauth) return undefined;
@@ -498,6 +535,7 @@ function composeOAuthAuth(
 	return {
 		...oauth,
 		toAuth: async (credential) => {
+			await authorize(extensionHeaderCommands(extension));
 			const auth = await oauth.toAuth(credential);
 			const env = credential.env;
 			const headers = resolveHeadersOrThrow(
@@ -549,6 +587,7 @@ export function composeModelProvider(
 	base: Provider | undefined,
 	modelConfig: ModelConfig,
 	extension: ProviderConfigInput | undefined,
+	authorize: CommandAuthorizer,
 ): Provider {
 	const config = modelConfig.getProvider(providerId);
 	let extensionOAuthCredential: OAuthCredentials | undefined;
@@ -580,8 +619,8 @@ export function composeModelProvider(
 	};
 	// Validate eagerly so registration/reload reports structural errors immediately.
 	getAllModels();
-	const apiKey = composeApiKeyAuth(providerId, base, config, extension);
-	const oauth = composeOAuthAuth(providerId, base, config, extension);
+	const apiKey = composeApiKeyAuth(providerId, base, config, extension, authorize);
+	const oauth = composeOAuthAuth(providerId, base, config, extension, authorize);
 	if (!apiKey && !oauth) throw new Error(`Provider ${providerId}: no authentication method configured.`);
 
 	const supportsBaseApi = (model: Model<Api>) => base?.getModels().some((entry) => entry.api === model.api) ?? false;
