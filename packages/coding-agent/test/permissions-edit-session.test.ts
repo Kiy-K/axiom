@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,26 +7,15 @@ import { PermissionGateway } from "../src/core/permissions/gateway.ts";
 // Issue #1: resuming or forking through the same agent must not inherit edit trust.
 it("does not carry edit trust into a different session", async () => {
 	const root = mkdtempSync(join(tmpdir(), "edit-session-id-"));
+	const store = mkdtempSync(join(tmpdir(), "edit-session-id-store-"));
 	try {
-		execFileSync("git", ["init", "-q", root]);
 		writeFileSync(join(root, "file.txt"), "original\n");
-		execFileSync("git", ["-C", root, "add", "file.txt"]);
-		execFileSync("git", [
-			"-C",
-			root,
-			"-c",
-			"user.name=Test",
-			"-c",
-			"user.email=test@example.invalid",
-			"commit",
-			"-qm",
-			"initial",
-		]);
 		let sessionId = "first";
 		let answer = "Trust edits for this session";
 		const gateway = new PermissionGateway({
 			getMode: () => "accept-edits",
 			getCwd: () => root,
+			checkpointRoot: store,
 			getSessionId: () => sessionId,
 			canRequestEditTrust: () => true,
 			getPrompter: () => ({ select: async () => answer }),
@@ -51,5 +39,6 @@ it("does not carry edit trust into a different session", async () => {
 		expect(gateway.editTrustActive).toBe(false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(store, { recursive: true, force: true });
 	}
 });

@@ -40,6 +40,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 		argumentHint: "[manual|accept-edits|auto|yolo]",
 	},
 	{
+		name: "restore",
+		description: "List the pre-edit copies kept for automatic edits, or put one back",
+		argumentHint: "[<id>]",
+	},
+	{
 		name: "permissions",
 		description: "Show the permission mode, active grants and recent decisions, or revoke grants",
 		argumentHint: "[revoke <grant_id>|all]",

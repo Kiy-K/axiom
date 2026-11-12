@@ -111,6 +111,7 @@ import {
 	modeRank,
 	PERMISSION_MODES_STRICTEST_FIRST,
 	type PermissionMode,
+	sanitizeForDisplay,
 } from "../../core/permissions/index.ts";
 import { findMatchingProviders } from "../../core/provider-matching.ts";
 import { RADIUS_PROVIDER_ID } from "../../core/radius.ts";
@@ -3399,6 +3400,11 @@ export class InteractiveMode {
 			if (text === "/mode" || text.startsWith("/mode ")) {
 				this.editor.setText("");
 				await this.handleModeCommand(text.slice("/mode".length).trim());
+				return;
+			}
+			if (text === "/restore" || text.startsWith("/restore ")) {
+				this.editor.setText("");
+				await this.handleRestoreCommand(text.slice("/restore".length).trim());
 				return;
 			}
 			if (text === "/permissions" || text.startsWith("/permissions ")) {
@@ -6914,6 +6920,36 @@ export class InteractiveMode {
 		} else {
 			permissions.setModeOverride(target);
 			text = `Permission mode: ${permissions.mode}${this.describeModeCaveat(target, permissions.mode)}`;
+		}
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(text, 1, 0));
+		this.ui.requestRender();
+	}
+
+	/** List the pre-edit copies kept for automatic edits, or put one back. The current file is kept first. */
+	private async handleRestoreCommand(args: string): Promise<void> {
+		const { permissions } = this.session;
+		let text: string;
+		try {
+			if (args === "") {
+				const copies = await permissions.checkpoints.list();
+				text =
+					copies.length === 0
+						? "No pre-edit copies in this session."
+						: `Pre-edit copies (newest last); /restore <id> puts one back:\n${copies
+								.slice(-20)
+								.map(
+									(copy) =>
+										`  ${String(copy.id).padStart(3)}  ${new Date(copy.time).toLocaleTimeString()}  ${copy.kind === "restore" ? "before restore  " : ""}${sanitizeForDisplay(copy.path, 300)}`,
+								)
+								.join("\n")}`;
+			} else if (/^\d+$/.test(args)) {
+				text = `Restored ${sanitizeForDisplay(await permissions.restoreCheckpoint(Number(args)), 300)}. The file as it was is kept as a new copy.`;
+			} else {
+				text = "Usage: /restore [<id>]";
+			}
+		} catch (error) {
+			text = error instanceof Error ? error.message : String(error);
 		}
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(text, 1, 0));

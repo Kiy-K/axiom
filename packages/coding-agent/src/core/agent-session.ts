@@ -457,6 +457,7 @@ export class AgentSession {
 		getPrompter: () => (this._extensionRunner.hasUI() ? this._extensionRunner.getUIContext() : undefined),
 		canRequestEditTrust: () => this._extensionMode === "tui" && process.env.CI === undefined,
 		auditFile: join(getAgentDir(), "audit", "permissions.jsonl"),
+		checkpointRoot: join(getAgentDir(), "checkpoints"),
 		onWarning: (error) => this._extensionRunner.emitError({ extensionPath: "<permissions>", event: "audit", error }),
 	});
 

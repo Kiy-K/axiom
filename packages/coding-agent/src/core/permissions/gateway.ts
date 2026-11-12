@@ -1,14 +1,15 @@
 // The permission gateway: one decision point every tool call passes before it executes.
 
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { EditMode } from "../settings-manager.ts";
 import { MAX_HASHLINE_BYTES } from "../tools/hashline.ts";
 import { type AuditEntry, AuditLog, type DecisionSource } from "./audit.ts";
+import { EditCheckpoints } from "./checkpoints.ts";
 import { editLeavesContent } from "./edit-content.ts";
 import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
+import { classifyPath } from "./paths.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
-import { isRecoverableEdit } from "./recoverable-edit.ts";
 import { sanitizeForDisplay as sanitize, sanitizeForPrompt as show } from "./redact.ts";
 import {
 	type Action,
@@ -38,6 +39,8 @@ export interface PermissionGatewayOptions {
 	canRequestEditTrust?: () => boolean;
 	/** Where decisions are appended as JSONL. Omit to keep them in memory only. */
 	auditFile?: string;
+	/** Directory of pre-edit copies. Without it no edit is trusted: an edit is allowed only once its copy is kept. */
+	checkpointRoot?: string;
 	onWarning?: (message: string) => void;
 	/** How long a prompt may stay unanswered before it is a denial. Default: {@link PROMPT_TIMEOUT_MS}. */
 	promptTimeoutMs?: number;
@@ -109,9 +112,12 @@ export class PermissionGateway {
 	// Started and not yet ended calls per id: a provider may reuse an id, and the first end must not free the other call.
 	private readonly running = new Map<string, number>();
 
+	readonly checkpoints: EditCheckpoints;
+
 	constructor(options: PermissionGatewayOptions) {
 		this.options = options;
 		this.audit = new AuditLog(options.auditFile);
+		this.checkpoints = new EditCheckpoints(options.checkpointRoot, options.getSessionId);
 	}
 
 	/**
@@ -269,25 +275,22 @@ export class PermissionGateway {
 			!action.path.inWorkspace ||
 			action.path.protected ||
 			action.path.secret ||
+			action.path.runsCode ||
 			action.path.real !== target
 		)
 			return false;
 		this.editReservation = { id: call.toolCallId, input: call.input };
 		let accepted = false;
 		try {
-			if (!(await isRecoverableEdit(workspace, target))) return false;
-			if (
-				(await stat(target)).size > MAX_HASHLINE_BYTES ||
-				!editLeavesContent(await readFile(target), call.builtinEdit, call.input)
-			)
-				return false;
+			let original = await readEditableFile(target);
+			if (!original || !editLeavesContent(original, call.builtinEdit, call.input)) return false;
 			if (!this.editTrustActive) {
 				if (this.editTrust?.accepted === false) return false;
 				const prompter = this.options.getPrompter();
 				if (!prompter) return false;
 				const choice = await this.ask(
 					prompter,
-					`Trust automatic edits in ${show(workspace, MAX_DETAIL_CHARS)} for this session?`,
+					`Trust automatic edits in ${show(workspace, MAX_DETAIL_CHARS)} for this session?\nA copy of each file is kept before an automatic edit changes it; /restore puts one back.`,
 					["Trust edits for this session", "Not now"],
 					signal,
 				);
@@ -296,12 +299,8 @@ export class PermissionGateway {
 				if (choice !== "Trust edits for this session") return false;
 				this.editTrust = { workspace, sessionId, accepted: true };
 				// The user may leave the prompt open while the workspace changes.
-				if (!(await isRecoverableEdit(workspace, target))) return false;
-				if (
-					(await stat(target)).size > MAX_HASHLINE_BYTES ||
-					!editLeavesContent(await readFile(target), call.builtinEdit, call.input)
-				)
-					return false;
+				original = await readEditableFile(target);
+				if (!original || !editLeavesContent(original, call.builtinEdit, call.input)) return false;
 			}
 			if (
 				signal?.aborted ||
@@ -311,7 +310,10 @@ export class PermissionGateway {
 				!this.options.canRequestEditTrust?.()
 			)
 				return false;
-			this.record(call, "allow", "accept-edits", `${describe(action)}: trusted recoverable edit`);
+			// The copy is made from the bytes the edit was just validated against, and the edit waits for it.
+			const kept = await this.checkpoints.save(target, original);
+			if (!kept) return false;
+			this.record(call, "allow", "accept-edits", `${describe(action)}: trusted edit, copy ${kept.id} kept`);
 			accepted = true;
 			return true;
 		} catch {
@@ -419,6 +421,29 @@ export class PermissionGateway {
 		}
 	}
 
+	/**
+	 * Put a pre-edit copy back (the user's `/restore`). Only a plain file inside the workspace that edits may
+	 * change: not protected, not credentials, not a file that runs code. The file as it is now is kept first.
+	 */
+	async restoreCheckpoint(id: number): Promise<string> {
+		// A running edit read its file before this restore, and replace mode would write over the restored bytes.
+		if (this.running.size > 0) throw new Error("A tool call is running; restore when it finishes.");
+		const cwd = this.options.getCwd();
+		const restored = await this.checkpoints.restore(id, (target) => {
+			const resolved = classifyPath(target, cwd);
+			return (
+				resolved !== undefined &&
+				resolved.real === target &&
+				resolved.inWorkspace &&
+				!resolved.protected &&
+				!resolved.secret &&
+				!resolved.runsCode
+			);
+		});
+		this.record({ toolName: "restore", toolCallId: "" }, "allow", "user-command", `restored copy ${id}: ${restored}`);
+		return restored;
+	}
+
 	private record(call: CallLabel, decision: Decision, source: DecisionSource, detail: string, grantId?: string): void {
 		const entry: AuditEntry = {
 			time: Date.now(),
@@ -482,4 +507,11 @@ export function describeGrantScope(scope: GrantScope): string {
 		case "extension":
 			return `tool ${show(scope.toolName, 100)}`;
 	}
+}
+
+/** The bytes of a plain, singly linked file small enough to edit, or undefined when it is anything else. */
+async function readEditableFile(path: string): Promise<Buffer | undefined> {
+	const info = await lstat(path);
+	if (!info.isFile() || info.nlink !== 1 || info.size > MAX_HASHLINE_BYTES) return undefined;
+	return readFile(path);
 }

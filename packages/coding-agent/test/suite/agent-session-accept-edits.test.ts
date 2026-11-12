@@ -21,7 +21,7 @@ describe("accept-edits session integration", () => {
 		dirs.length = 0;
 		vi.unstubAllEnvs();
 	});
-	it("trusts a clean built-in edit but asks before a subsequent dirty edit and a shell call", async () => {
+	it("trusts a built-in edit, then a second edit of the same changed file, but asks before a shell call", async () => {
 		const root = mkdtempSync(join(tmpdir(), "edit-session-"));
 		const agentDir = mkdtempSync(join(tmpdir(), "edit-agent-"));
 		dirs.push(root, agentDir);
@@ -68,9 +68,14 @@ describe("accept-edits session integration", () => {
 		const first = await run("edit", { path: file, edits: [{ oldText: "original", newText: "changed" }] });
 		expect(first.isError, JSON.stringify(first)).toBeFalsy();
 		expect(readFileSync(file, "utf8")).toBe("changed\n");
-		expect((await run("edit", { path: file, edits: [{ oldText: "changed", newText: "again" }] })).isError).toBe(true);
+		// The file is now modified and uncommitted: the pre-edit copy, not a clean worktree, is what makes it recoverable.
+		expect(
+			(await run("edit", { path: file, edits: [{ oldText: "changed", newText: "again" }] })).isError,
+		).toBeFalsy();
+		expect(readFileSync(file, "utf8")).toBe("again\n");
+		expect((await harness.session.permissions.checkpoints.list()).map((copy) => copy.id)).toEqual([1, 2]);
 		expect((await run("bash", { command: "echo no" })).isError).toBe(true);
-		expect(prompts).toHaveLength(3);
+		expect(prompts).toHaveLength(2);
 	});
 
 	// A parallel batch aborted at a prompt must not leave the edit reservation held.

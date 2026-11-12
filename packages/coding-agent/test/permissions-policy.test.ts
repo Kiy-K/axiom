@@ -343,7 +343,7 @@ describe("redaction of more shapes", () => {
 describe("grants", () => {
 	const writeAction = (real: string): Action => ({
 		kind: "write",
-		path: { real, workspace: "/w/ws", inWorkspace: true, protected: false, secret: false },
+		path: { real, workspace: "/w/ws", inWorkspace: true, protected: false, secret: false, runsCode: false },
 	});
 
 	it("covers a directory tree but not a sibling that shares its name as a prefix", () => {

@@ -24,6 +24,8 @@ export interface ResolvedPath {
 	protected: boolean;
 	/** Looks like credentials: reads and writes always ask and are never covered by a grant. */
 	secret: boolean;
+	/** A workspace file that runs as code or chooses what runs (CI, scripts, package manifests): never trust-allowed. */
+	runsCode: boolean;
 }
 
 /**

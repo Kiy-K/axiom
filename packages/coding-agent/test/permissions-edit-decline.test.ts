@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,25 +7,14 @@ import { PermissionGateway } from "../src/core/permissions/gateway.ts";
 // Issue #1: declining session trust should not repeatedly ask for it.
 it("remembers a declined trust request for the current session", async () => {
 	const root = mkdtempSync(join(tmpdir(), "edit-decline-"));
+	const store = mkdtempSync(join(tmpdir(), "edit-decline-store-"));
 	try {
-		execFileSync("git", ["init", "-q", root]);
 		writeFileSync(join(root, "file.txt"), "original\n");
-		execFileSync("git", ["-C", root, "add", "file.txt"]);
-		execFileSync("git", [
-			"-C",
-			root,
-			"-c",
-			"user.name=Test",
-			"-c",
-			"user.email=test@example.invalid",
-			"commit",
-			"-qm",
-			"initial",
-		]);
 		const prompts: string[] = [];
 		const gateway = new PermissionGateway({
 			getMode: () => "accept-edits",
 			getCwd: () => root,
+			checkpointRoot: store,
 			getSessionId: () => "test",
 			canRequestEditTrust: () => true,
 			getPrompter: () => ({
@@ -47,31 +35,21 @@ it("remembers a declined trust request for the current session", async () => {
 		expect(prompts.filter((title) => title.startsWith("Trust automatic edits"))).toHaveLength(1);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(store, { recursive: true, force: true });
 	}
 });
 
 // A dismissed or aborted prompt is not a decision, so trust is asked again.
 it("does not remember a dismissed trust prompt", async () => {
 	const root = mkdtempSync(join(tmpdir(), "edit-dismiss-"));
+	const store = mkdtempSync(join(tmpdir(), "edit-dismiss-store-"));
 	try {
-		execFileSync("git", ["init", "-q", root]);
 		writeFileSync(join(root, "file.txt"), "original\n");
-		execFileSync("git", ["-C", root, "add", "file.txt"]);
-		execFileSync("git", [
-			"-C",
-			root,
-			"-c",
-			"user.name=Test",
-			"-c",
-			"user.email=test@example.invalid",
-			"commit",
-			"-qm",
-			"initial",
-		]);
 		let trustPrompts = 0;
 		const gateway = new PermissionGateway({
 			getMode: () => "accept-edits",
 			getCwd: () => root,
+			checkpointRoot: store,
 			getSessionId: () => "test",
 			canRequestEditTrust: () => true,
 			promptTimeoutMs: 10,
@@ -93,5 +71,6 @@ it("does not remember a dismissed trust prompt", async () => {
 		expect(trustPrompts).toBe(2);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(store, { recursive: true, force: true });
 	}
 });
