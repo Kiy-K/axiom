@@ -27,7 +27,6 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    environment: pi-model-upload
     env:
       SHA: ${{ github.event.workflow_run.head_sha || inputs.sha }}
       AWS_ACCESS_KEY_ID: ${{ secrets.PI_ARTIFACTS_R2_ACCESS_KEY_ID }}

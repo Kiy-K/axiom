@@ -88,7 +88,6 @@ jobs:
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
     needs: generate
     runs-on: ubuntu-latest
-    environment: pi-model-upload
     concurrency:
       group: publish-model-catalog-r2
       cancel-in-progress: true

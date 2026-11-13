@@ -484,7 +484,6 @@ jobs:
   announce-pi-dev-release:
     runs-on: ubuntu-latest
     needs: publish-npm
-    environment: pi-model-upload
     concurrency:
       group: announce-pi-dev-release
       cancel-in-progress: false
