@@ -76,7 +76,7 @@ The gateway is authoritative for every route where the **model or an extension**
 | Codemode `models.*` | model-written script | not mediated | sends script-chosen content to a configured provider; the `codemode` tool itself asks by name |
 | Extension code: handlers, factories, in-process file and network access, `node:child_process`, the exported `createBashTool` and `createLocalBashOperations`, a `pi.exec` or `pi.authorizeExec` called while the extension factory loads (before the gateway is bound) | extension | not mediated | P7 |
 | A shell's contents (`eval`, variable expansion, scripts written then run, `bash -c` bodies built at runtime) | model | not mediated | P7. Every shell command still asks, so the lexical classifier only names risks and withholds grants |
-| TOCTOU: the gateway resolves a path once and the tool resolves it again when it runs | model | not mediated | P7. A link swapped in between can redirect it |
+| Filesystem races between a permission decision and tool execution | model | partially mitigated | On Linux, automatic built-in edits retain a no-follow file handle; replace edits recheck identity and write through it, and hashline edits recheck identity before rename. Hashline's final check-to-rename window, concurrent mutation and all other tools remain outside this protection. Automatic edit approval falls back to a prompt where secure opens are unavailable. P7 provides the broader sandbox. |
 | Built-in slash commands that write files or use the network, startup network calls | user, harness | exempt | no model- or extension-chosen input |
 | Bare `Agent` (pi-agent-core) and Durable/p2 | embedder | not mediated | they have their own loops and no gateway |
 

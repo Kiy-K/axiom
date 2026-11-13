@@ -36,6 +36,8 @@ interface Tally {
 	calls: Array<{ call: Call; outcome: Outcome; source: string }>;
 }
 
+// Tools Axiom's agent has. Recordings from other harnesses carry tools Axiom never sees; they would ask and spend the budget.
+const AXIOM_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 const MODES: PermissionMode[] = ["manual", "accept-edits", "auto"];
 
 function readCalls(file: string): Call[] {
@@ -49,8 +51,11 @@ function readCalls(file: string): Call[] {
 		if (message.role === "user") startsTask = true;
 		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
 		for (const part of message.content) {
-			if (part.type !== "toolCall") continue;
+			if (part.type !== "toolCall" || !AXIOM_TOOLS.has(part.name)) continue;
 			let input: Record<string, unknown> = part.arguments ?? {};
+			// Pi sessions name the path `file`; the gateway reads `path`. Anchor edits keep their anchors, which the gateway
+			// does not inspect: the replay decides on the path and file class only.
+			if (typeof input.file === "string" && !("path" in input)) input = { ...input, path: input.file };
 			// Older sessions record `edit` as one {oldText, newText}; the replace-mode tool takes a list of them.
 			if (part.name === "edit" && typeof input.oldText === "string" && !("edits" in input)) {
 				input = { path: input.path, edits: [{ oldText: input.oldText, newText: input.newText }] };

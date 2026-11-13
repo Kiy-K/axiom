@@ -62,8 +62,16 @@ type HashlineEditInput = Static<typeof hashlineEditSchema>;
  * target must still hold `snapshot`, the bytes the edit was computed from; otherwise nothing is renamed
  * and the temp file is removed. Refuses hard links, since rename would detach them.
  */
-export async function replaceFileAtomically(absolutePath: string, content: string, snapshot: Buffer): Promise<void> {
+export async function replaceFileAtomically(
+	absolutePath: string,
+	content: string,
+	snapshot: Buffer,
+	checkIdentity?: () => Promise<void>,
+): Promise<void> {
+	await checkIdentity?.();
 	const target = await realpath(absolutePath);
+	if (checkIdentity && target !== absolutePath)
+		throw new Error("The automatic edit path changed after authorization.");
 	const info = await stat(target);
 	if (!info.isFile()) {
 		throw new Error(`${target} is not a regular file. Hashline edit will not replace it.`);
@@ -87,6 +95,7 @@ export async function replaceFileAtomically(absolutePath: string, content: strin
 				`${absolutePath} changed while the edit was being written. Nothing was written. Re-read the file.`,
 			);
 		}
+		await checkIdentity?.();
 		await rename(temp, target);
 	} catch (error) {
 		await rm(temp, { force: true });
@@ -124,8 +133,9 @@ export function createHashlineEditToolDefinition(
 		parameters: hashlineEditSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		renderShell: "self",
-		async execute(_toolCallId, input: HashlineEditInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionContext) {
+		async execute(toolCallId, input: HashlineEditInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionContext) {
 			const absolutePath = await resolveReadPathAsync(input.path, ctx?.cwd || cwd);
+			const lease = options?.editLease?.(toolCallId, absolutePath, input);
 
 			return withFileMutationQueue(absolutePath, async () => {
 				// Checked after each await rather than from an abort listener, so the queue stays locked
@@ -136,7 +146,7 @@ export function createHashlineEditToolDefinition(
 				throwIfAborted();
 
 				try {
-					await access(absolutePath);
+					if (!lease) await access(absolutePath);
 				} catch (error: unknown) {
 					throwIfAborted();
 					const errorMessage =
@@ -145,9 +155,9 @@ export function createHashlineEditToolDefinition(
 				}
 				throwIfAborted();
 				// Default path: check the size before reading, so an oversized file is never loaded.
-				if (!custom) assertHashlineSize(input.path, (await stat(absolutePath)).size);
+				if (!custom && !lease) assertHashlineSize(input.path, (await stat(absolutePath)).size);
 
-				const original = await readFile(absolutePath);
+				const original = lease?.original ?? (await readFile(absolutePath));
 				throwIfAborted();
 				assertHashlineSize(input.path, original.length);
 				const currentTag = fileTag(original);
@@ -182,7 +192,7 @@ export function createHashlineEditToolDefinition(
 				if (custom) {
 					await custom.writeFile(absolutePath, bom + newText);
 				} else {
-					await replaceFileAtomically(absolutePath, bom + newText, original);
+					await replaceFileAtomically(absolutePath, bom + newText, original, lease && (() => lease.assertPath()));
 				}
 
 				// Past the write the edit has happened, so an abort no longer reports as a failure.

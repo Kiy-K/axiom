@@ -3886,11 +3886,18 @@ export class AgentSession {
 				)
 			: {
 					...createAllToolDefinitions(this._cwd, {
+						edit: { editLease: (id, target, input) => this._permissions.editLease(id, target, input) },
 						read: { autoResizeImages, hashline: editMode === "hashline" },
 						bash: { commandPrefix: shellCommandPrefix, shellPath, jobs: jobScope },
 						powershell: { jobs: jobScope },
 					}),
-					...(editMode === "hashline" ? { edit: createHashlineEditToolDefinition(this._cwd) } : {}),
+					...(editMode === "hashline"
+						? {
+								edit: createHashlineEditToolDefinition(this._cwd, {
+									editLease: (id, target, input) => this._permissions.editLease(id, target, input),
+								}),
+							}
+						: {}),
 					job: createJobToolDefinition(this._jobScope),
 				};
 

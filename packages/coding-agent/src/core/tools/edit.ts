@@ -3,6 +3,7 @@ import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } 
 import { type Static, Type } from "typebox";
 import { splitBom } from "../../utils/text.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import type { EditLease } from "../permissions/edit-lease.ts";
 import {
 	applyEditsToNormalizedContent,
 	type Edit,
@@ -94,6 +95,8 @@ const defaultEditOperations: EditOperations = {
 export interface EditToolOptions {
 	/** Custom operations for file editing. Default: local filesystem */
 	operations?: EditOperations;
+	/** Internal lease for an automatically authorized edit. */
+	editLease?: (id: string, target: string, input: unknown) => EditLease | undefined;
 }
 
 function prepareEditArguments(input: unknown): EditToolInput {
@@ -113,7 +116,9 @@ function prepareEditArguments(input: unknown): EditToolInput {
 			} else if (isSingleEditInput(parsed)) {
 				args.edits = [parsed];
 			}
-		} catch {}
+		} catch {
+			// Leave invalid JSON unchanged for schema validation.
+		}
 	} else if (isSingleEditInput(args.edits)) {
 		args.edits = [args.edits];
 	}
@@ -152,9 +157,10 @@ export function createEditToolDefinition(
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		renderShell: "self",
 		prepareArguments: prepareEditArguments,
-		async execute(_toolCallId, input: EditToolInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionContext) {
+		async execute(toolCallId, input: EditToolInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionContext) {
 			const { path, edits } = validateEditInput(input);
 			const absolutePath = resolveToCwd(path, ctx?.cwd || cwd);
+			const lease = options?.editLease?.(toolCallId, absolutePath, input);
 
 			return withFileMutationQueue(absolutePath, async () => {
 				// Do not reject from an abort event listener here: that would release the
@@ -169,7 +175,7 @@ export function createEditToolDefinition(
 
 				// Check if file exists.
 				try {
-					await ops.access(absolutePath);
+					if (!lease) await ops.access(absolutePath);
 				} catch (error: unknown) {
 					throwIfAborted();
 					const errorMessage =
@@ -179,7 +185,7 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				// Read the file.
-				const buffer = await ops.readFile(absolutePath);
+				const buffer = lease?.original ?? (await ops.readFile(absolutePath));
 				const rawContent = buffer.toString("utf-8");
 				throwIfAborted();
 
@@ -190,7 +196,10 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				const finalContent = bom + restoreLineEndings(content, newContent);
-				await ops.writeFile(absolutePath, finalContent);
+				if (lease) {
+					await lease.assertPath();
+					await lease.write(Buffer.from(finalContent, "utf8"));
+				} else await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 
 				const diffResult = generateDiffString(baseContent, newContent);

@@ -9,6 +9,7 @@ import { type AuditEntry, AuditLog, type DecisionSource } from "./audit.ts";
 import { autoVerdict, hardClass, impliedActions } from "./auto-classes.ts";
 import { EditCheckpoints } from "./checkpoints.ts";
 import { editLeavesContent } from "./edit-content.ts";
+import { type EditLease, openEditLease } from "./edit-lease.ts";
 import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
 import { classifyPath } from "./paths.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
@@ -118,7 +119,7 @@ export class PermissionGateway {
 	readonly audit: AuditLog;
 	private readonly options: PermissionGatewayOptions;
 	private editTrust?: { workspace: string; sessionId: string; accepted: boolean };
-	private editReservation?: { id: string; input: Record<string, unknown> };
+	private editReservation?: { id: string; input: Record<string, unknown>; lease?: EditLease };
 	private modeOverride?: PermissionMode;
 	private lastMode?: PermissionMode;
 	/** Counts effective-mode changes, so a prompt can tell that the mode changed while it was open. */
@@ -291,7 +292,10 @@ export class PermissionGateway {
 		if (remaining > 0) this.running.set(id, remaining);
 		else {
 			this.running.delete(id);
-			if (this.editReservation?.id === id) this.editReservation = undefined;
+			if (this.editReservation?.id === id) {
+				void this.editReservation.lease?.close().catch(() => {});
+				this.editReservation = undefined;
+			}
 		}
 	}
 
@@ -302,7 +306,20 @@ export class PermissionGateway {
 			this.pendingUntrusted.delete(id);
 			this.taint ??= source;
 		}
-		if (this.editReservation?.id === id && this.editReservation.input === input) this.editReservation = undefined;
+		if (this.editReservation?.id === id && this.editReservation.input === input) {
+			void this.editReservation.lease?.close().catch(() => {});
+			this.editReservation = undefined;
+		}
+	}
+
+	/** The descriptor reserved for this automatic edit, if this call has one. */
+	editLease(id: string, target: string, input: unknown): EditLease | undefined {
+		const reservation = this.editReservation;
+		if (!reservation || reservation.id !== id) return undefined;
+		if (!reservation.lease || reservation.lease.target !== target || reservation.input !== input) {
+			throw new Error("Automatic edit target or arguments changed.");
+		}
+		return reservation.lease;
 	}
 
 	private async tryAcceptEdit(call: ToolCallRequest, actions: Action[], signal?: AbortSignal): Promise<boolean> {
@@ -329,13 +346,19 @@ export class PermissionGateway {
 			action.path.real !== target
 		)
 			return false;
-		this.editReservation = { id: call.toolCallId, input: call.input };
+		const reservation = { id: call.toolCallId, input: call.input, lease: undefined as EditLease | undefined };
+		this.editReservation = reservation;
 		let accepted = false;
 		try {
-			let original = await readEditableFile(target);
-			if (!original || !editLeavesContent(original, call.builtinEdit, call.input)) return false;
-			// An executable file (a script with no extension) runs code whatever its name is.
-			if (((await lstat(target)).mode & 0o111) !== 0) return false;
+			const lease = await openEditLease(workspace, target);
+			if (!lease) return false;
+			if (this.editReservation !== reservation) {
+				await lease.close();
+				return false;
+			}
+			reservation.lease = lease;
+			const original = lease.original;
+			if (!editLeavesContent(original, call.builtinEdit, call.input)) return false;
 			if (!this.editTrustActive) {
 				if (this.editTrust?.accepted === false) return false;
 				const prompter = this.options.getPrompter();
@@ -354,8 +377,7 @@ export class PermissionGateway {
 				if (choice !== "Trust edits for this session") return false;
 				this.editTrust = { workspace, sessionId, accepted: true };
 				// The user may leave the prompt open while the workspace changes.
-				original = await readEditableFile(target);
-				if (!original || !editLeavesContent(original, call.builtinEdit, call.input)) return false;
+				await lease.assertUnchanged();
 			}
 			if (
 				signal?.aborted ||
@@ -369,7 +391,18 @@ export class PermissionGateway {
 				return false;
 			// The copy is made from the bytes the edit was just validated against, and the edit waits for it.
 			const kept = await this.checkpoints.save(target, original);
-			if (!kept) return false;
+			await lease.assertUnchanged();
+			if (
+				!kept ||
+				signal?.aborted ||
+				this.mode !== mode ||
+				this.modeGeneration !== generation ||
+				resolve(this.options.getCwd()) !== workspace ||
+				this.options.getSessionId() !== sessionId ||
+				!this.options.canRequestEditTrust?.() ||
+				this.untrustedSource !== undefined
+			)
+				return false;
 			const detail = `${describe(action)}: trusted edit, copy ${kept.id} kept`;
 			if (mode === "auto") this.record(call, "allow", "auto", `${EDIT_RULE}: ${detail}`);
 			else this.record(call, "allow", "accept-edits", detail);

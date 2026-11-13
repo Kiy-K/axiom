@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,6 +198,52 @@ describe("auto mode positive rules", () => {
 			expect(switching.editTrustActive).toBe(false);
 			mode = "auto";
 			expect(switching.editTrustActive).toBe(false);
+		});
+
+		// Issue #1: a file changed while its checkpoint is saved must not be auto-approved.
+		it("rechecks the file after saving the checkpoint", async () => {
+			const save = gateway.checkpoints.save.bind(gateway.checkpoints);
+			vi.spyOn(gateway.checkpoints, "save").mockImplementation(async (...args) => {
+				const checkpoint = await save(...args);
+				writeFileSync(join(root, "a.txt"), "changed\n");
+				return checkpoint;
+			});
+			answer = "Trust edits for this session";
+			await gateway.authorize(edit("a.txt"));
+			expect(gateway.audit.tail(1)[0].source).not.toBe("auto");
+		});
+
+		// Issue #1: tightening the mode while a checkpoint is saved must not authorize the edit.
+		it("rechecks the mode after saving the checkpoint", async () => {
+			let mode: "manual" | "auto" = "auto";
+			const switching = make(() => mode);
+			const save = switching.checkpoints.save.bind(switching.checkpoints);
+			vi.spyOn(switching.checkpoints, "save").mockImplementation(async (...args) => {
+				const checkpoint = await save(...args);
+				mode = "manual";
+				return checkpoint;
+			});
+			answer = "Trust edits for this session";
+			await switching.authorize(edit("a.txt"));
+			expect(switching.audit.tail(1)[0].source).not.toBe("auto");
+		});
+		// Issue #1: the file may become executable while the trust prompt is open.
+		it("rechecks executable permissions after the trust prompt", async () => {
+			const trusting = new PermissionGateway({
+				getMode: () => "auto",
+				getCwd: () => root,
+				getSessionId: () => "s",
+				canRequestEditTrust: () => true,
+				checkpointRoot: store,
+				getPrompter: () => ({
+					select: async (_title, options) => {
+						if (options.includes("Trust edits for this session")) chmodSync(join(root, "a.txt"), 0o755);
+						return options[0];
+					},
+				}),
+			});
+			await trusting.authorize(edit("a.txt"));
+			expect(trusting.audit.tail(1)[0].source).not.toBe("auto");
 		});
 
 		it("allows a built-in edit after session trust, keeps a copy, and audits the rule", async () => {
