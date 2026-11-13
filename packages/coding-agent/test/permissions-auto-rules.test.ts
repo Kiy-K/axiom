@@ -191,8 +191,10 @@ describe("auto mode positive rules", () => {
 			let mode: "manual" | "auto" = "auto";
 			const switching = make(() => mode);
 			answer = "Trust edits for this session";
-			expect(await switching.authorize(edit("a.txt"))).toBeUndefined();
-			switching.finishToolCall("e", edit("a.txt").input);
+			const call = edit("a.txt");
+			expect(await switching.authorize(call)).toBeUndefined();
+			// The same input object releases the edit's open file; a fresh one would leak it.
+			switching.finishToolCall("e", call.input);
 			expect(switching.editTrustActive).toBe(true);
 			mode = "manual";
 			expect(switching.editTrustActive).toBe(false);
@@ -248,12 +250,13 @@ describe("auto mode positive rules", () => {
 
 		it("allows a built-in edit after session trust, keeps a copy, and audits the rule", async () => {
 			answer = "Trust edits for this session";
-			expect(await gateway.authorize(edit("a.txt"))).toBeUndefined();
+			const call = edit("a.txt");
+			expect(await gateway.authorize(call)).toBeUndefined();
 			expect(prompts).toHaveLength(1);
 			expect(gateway.editTrustActive).toBe(true);
 			expect(gateway.audit.tail(1)[0]).toMatchObject({ decision: "allow", source: "auto" });
 			expect(gateway.audit.tail(1)[0].detail).toMatch(/^trusted-recoverable-edit: .*copy \d+ kept/);
-			gateway.finishToolCall("e", edit("a.txt").input);
+			gateway.finishToolCall("e", call.input);
 		});
 
 		it("asks for instruction files, other agents' settings, task runners and executable scripts", async () => {
