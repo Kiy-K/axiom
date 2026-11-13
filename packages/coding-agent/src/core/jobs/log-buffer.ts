@@ -5,9 +5,6 @@
 
 import { sanitizeBinaryOutput } from "../../utils/shell.ts";
 
-/** DEL and C1 controls: sanitizeBinaryOutput stops at C0, but a terminal may read U+009B as CSI. */
-const DEL_AND_C1 = /[\x7f-\x9f]/g;
-
 /** Retained output per job. Older bytes are dropped and reported as truncated. */
 export const LOG_RETAINED_BYTES = 512 * 1024;
 export const LOG_PAGE_MAX_BYTES = 64 * 1024;
@@ -83,7 +80,7 @@ export class LogBuffer {
 		bytes = trimmed;
 		const notice = droppedBytes > 0 ? `[${droppedBytes} bytes truncated]\n` : "";
 		return {
-			text: notice + sanitizeBinaryOutput(bytes.toString("utf8")).replace(DEL_AND_C1, ""),
+			text: notice + sanitizeBinaryOutput(bytes.toString("utf8")),
 			cursor: String(end),
 			droppedBytes,
 		};

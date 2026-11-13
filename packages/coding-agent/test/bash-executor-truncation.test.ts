@@ -56,4 +56,29 @@ describe("user bash output truncation (#10164)", () => {
 		expect(result.truncated).toBe(false);
 		expect(result.fullOutputPath).toBeUndefined();
 	});
+
+	// Issue #1, P6 Review 6: hostile filenames can put DEL and C1 controls in foreground shell output.
+	it.each([false, true])("removes DEL and C1 from returned and streamed output, bytewise=%s", async (bytewise) => {
+		const controls = Array.from({ length: 33 }, (_, index) => `${String.fromCharCode(0x7f + index)}|`).join("");
+		const bytes = Buffer.from(`~${controls}\u00a0é€😀\t\n`);
+		const chunks: string[] = [];
+		const result = await executeBashWithOperations(
+			"ls",
+			process.cwd(),
+			{
+				exec: async (_command, _cwd, { onData }) => {
+					if (bytewise) {
+						for (const byte of bytes) onData(Buffer.from([byte]));
+					} else {
+						onData(bytes);
+					}
+					return { exitCode: 0 };
+				},
+			},
+			{ onChunk: (chunk) => chunks.push(chunk) },
+		);
+		const expected = `~${"|".repeat(33)}\u00a0é€😀\t\n`;
+		expect(result.output).toBe(expected);
+		expect(chunks.join("")).toBe(expected);
+	});
 });

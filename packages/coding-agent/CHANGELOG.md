@@ -44,6 +44,7 @@
 
 ### Fixed
 
+- Fixed foreground shell output and rendered tool output passing DEL and C1 control characters through; the shared output sanitizer now removes them, as background job output already did. ([#1](https://github.com/Kiy-K/axiom/issues/1))
 - Fixed a shell command containing a word such as `constructor`, `toString` or `valueOf` (for example `grep constructor f`) being denied as "Permission check failed" in every permission mode: the shell classifier looked the word up in its subcommand tables and found a function on `Object.prototype`. ([#1](https://github.com/Kiy-K/axiom/issues/1))
 - Axiom now prints a startup warning when `permissionMode` is the former `unrestricted` value or any other unrecognized value, instead of silently running in `manual`; it still runs in `manual`. `schemas/settings.schema.json` now lists `yolo`, `manual` and `accept-edits`, and `yolo` as the default (it still listed `unrestricted`).
 - Fixed `job output` and the output shown when a command moves to the background passing DEL and C1 control characters (including the 8-bit CSI `U+009B`) through; they are now removed with the C0 controls.
