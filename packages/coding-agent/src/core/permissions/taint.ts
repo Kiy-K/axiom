@@ -1,6 +1,6 @@
 // Where untrusted content can enter a session: the results of calls whose output the user did not write.
 
-import { parseCommands } from "./shell.ts";
+import { own, parseCommands } from "./shell.ts";
 import type { Action } from "./types.ts";
 
 /**
@@ -52,7 +52,7 @@ function fetchesFromOutside(command: string): boolean {
 		const rest = words.slice(start + 1, start + 6);
 		if (FETCHING_COMMANDS.has(name)) return true;
 		if (SCRIPT_INTERPRETERS.has(name) && rest.slice(0, 2).some((word) => /^-[a-z]*[ce]$/.test(word))) return true;
-		return FETCHING_SUBCOMMANDS[name]?.some((sub) => rest.includes(sub)) ?? false;
+		return own(FETCHING_SUBCOMMANDS, name)?.some((sub) => rest.includes(sub)) ?? false;
 	});
 }
 

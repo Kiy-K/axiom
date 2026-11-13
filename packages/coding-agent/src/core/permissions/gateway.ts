@@ -2,16 +2,18 @@
 
 import { lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { getShellEnv } from "../../utils/shell.ts";
 import type { EditMode } from "../settings-manager.ts";
 import { MAX_HASHLINE_BYTES } from "../tools/hashline.ts";
 import { type AuditEntry, AuditLog, type DecisionSource } from "./audit.ts";
-import { autoVerdict, impliedActions } from "./auto-classes.ts";
+import { autoVerdict, hardClass, impliedActions } from "./auto-classes.ts";
 import { EditCheckpoints } from "./checkpoints.ts";
 import { editLeavesContent } from "./edit-content.ts";
 import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
 import { classifyPath } from "./paths.ts";
 import { actionsForToolCall, execAction, judgeAction, MAX_COMMAND_CHARS } from "./policy.ts";
 import { sanitizeForDisplay as sanitize, sanitizeForPrompt as show } from "./redact.ts";
+import { isReadonlyShell } from "./shell-grammar.ts";
 import { runsNetworkCommand, untrustedSource } from "./taint.ts";
 import {
 	type Action,
@@ -39,6 +41,8 @@ export interface PermissionGatewayOptions {
 	getPrompter: () => PermissionPrompter | undefined;
 	/** Only a fresh interactive TUI session can request edit trust, and only there does `auto` act as `auto`. */
 	canRequestEditTrust?: () => boolean;
+	/** True when `shellCommandPrefix` or `shellPath` is set: a prefix can make any command run code, so `readonly-shell` is off. */
+	shellIsCustomized?: () => boolean;
 	/** Where decisions are appended as JSONL. Omit to keep them in memory only. */
 	auditFile?: string;
 	/** Directory of pre-edit copies. Without it no edit is trusted: an edit is allowed only once its copy is kept. */
@@ -89,6 +93,9 @@ export const PROMPT_TIMEOUT_MS = 2 * 60 * 1000;
 export const TAINT_ASK_BUDGET = 3;
 
 const ALLOW_ONCE = "Allow once";
+/** Rule ids named in the audit entry of an automatic allow in `auto`. */
+const EDIT_RULE = "trusted-recoverable-edit";
+const SHELL_RULE = "readonly-shell";
 const DENY = "Deny";
 /** Long enough for any command the policy lets through, so a prompt or log entry never hides part of one. */
 const MAX_DETAIL_CHARS = MAX_COMMAND_CHARS;
@@ -210,7 +217,9 @@ export class PermissionGateway {
 		)
 			this.editTrust = undefined;
 		return (
-			this.mode === "accept-edits" && this.editTrust?.accepted === true && !!this.options.canRequestEditTrust?.()
+			(this.mode === "accept-edits" || this.mode === "auto") &&
+			this.editTrust?.accepted === true &&
+			!!this.options.canRequestEditTrust?.()
 		);
 	}
 
@@ -297,11 +306,13 @@ export class PermissionGateway {
 	}
 
 	private async tryAcceptEdit(call: ToolCallRequest, actions: Action[], signal?: AbortSignal): Promise<boolean> {
-		if (this.mode !== "accept-edits" || !call.builtinEdit || call.toolName !== "edit" || this.editReservation)
-			return false;
+		const mode = this.mode;
+		if ((mode !== "accept-edits" && mode !== "auto") || !call.builtinEdit || call.toolName !== "edit") return false;
+		if (this.editReservation) return false;
 		if (!this.options.canRequestEditTrust?.() || typeof call.input.path !== "string") return false;
 		// Untrusted content entered this task: a planted edit is what an injection wants, so every edit asks.
 		if (this.untrustedSource !== undefined) return false;
+		const generation = this.modeGeneration;
 		const workspace = resolve(this.options.getCwd());
 		const sessionId = this.options.getSessionId();
 		const target = resolve(workspace, call.input.path);
@@ -313,6 +324,8 @@ export class PermissionGateway {
 			action.path.protected ||
 			action.path.secret ||
 			action.path.runsCode ||
+			// Credentials and code-running files are excluded above; this also keeps persistence paths a hard class.
+			hardClass(action) !== undefined ||
 			action.path.real !== target
 		)
 			return false;
@@ -321,6 +334,8 @@ export class PermissionGateway {
 		try {
 			let original = await readEditableFile(target);
 			if (!original || !editLeavesContent(original, call.builtinEdit, call.input)) return false;
+			// An executable file (a script with no extension) runs code whatever its name is.
+			if (((await lstat(target)).mode & 0o111) !== 0) return false;
 			if (!this.editTrustActive) {
 				if (this.editTrust?.accepted === false) return false;
 				const prompter = this.options.getPrompter();
@@ -332,6 +347,9 @@ export class PermissionGateway {
 					signal,
 				);
 				if (this.options.getSessionId() !== sessionId || resolve(this.options.getCwd()) !== workspace) return false;
+				// A mode that left and came back during the prompt cleared trust; the answer must not set it again.
+				this.syncMode();
+				if (this.modeGeneration !== generation) return false;
 				if (choice === "Not now") this.editTrust = { workspace, sessionId, accepted: false };
 				if (choice !== "Trust edits for this session") return false;
 				this.editTrust = { workspace, sessionId, accepted: true };
@@ -341,7 +359,8 @@ export class PermissionGateway {
 			}
 			if (
 				signal?.aborted ||
-				this.mode !== "accept-edits" ||
+				this.mode !== mode ||
+				this.modeGeneration !== generation ||
 				resolve(this.options.getCwd()) !== workspace ||
 				this.options.getSessionId() !== sessionId ||
 				!this.options.canRequestEditTrust?.() ||
@@ -351,7 +370,9 @@ export class PermissionGateway {
 			// The copy is made from the bytes the edit was just validated against, and the edit waits for it.
 			const kept = await this.checkpoints.save(target, original);
 			if (!kept) return false;
-			this.record(call, "allow", "accept-edits", `${describe(action)}: trusted edit, copy ${kept.id} kept`);
+			const detail = `${describe(action)}: trusted edit, copy ${kept.id} kept`;
+			if (mode === "auto") this.record(call, "allow", "auto", `${EDIT_RULE}: ${detail}`);
+			else this.record(call, "allow", "accept-edits", detail);
 			accepted = true;
 			return true;
 		} catch {
@@ -370,10 +391,13 @@ export class PermissionGateway {
 		// verdict has no grant to offer, so none is consulted. Only `auto` does this, and it only ever tightens.
 		const auto = this.mode === "auto";
 		const actions = auto ? [...requested, ...impliedActions(requested, this.options.getCwd())] : requested;
-		const verdicts = actions.map((action) => ({
-			action,
-			verdict: auto ? autoVerdict(action, judgeAction(action)) : judgeAction(action),
-		}));
+		const verdicts = actions.map((action) => {
+			const base = auto ? autoVerdict(action, judgeAction(action)) : judgeAction(action);
+			const rule =
+				auto && base.decision === "ask" && this.isReadonlyShellCall(call, action) ? SHELL_RULE : undefined;
+			const verdict: ActionVerdict = rule ? { decision: "allow", reason: rule } : base;
+			return { action, verdict, rule };
+		});
 		const summary = actions.map(describe).join("; ") || "no direct effect";
 
 		const denied = verdicts.find((entry) => entry.verdict.decision === "deny");
@@ -388,7 +412,10 @@ export class PermissionGateway {
 		);
 		if (pending.length === 0) {
 			const grant = verdicts.map((entry) => this.findGrant(entry.action)).find((found) => found !== undefined);
-			this.record(call, "allow", grant ? "grant" : "policy", summary, grant?.id);
+			const rules = verdicts.flatMap((entry) => (entry.rule ? [entry.rule] : []));
+			if (grant) this.record(call, "allow", "grant", summary, grant.id);
+			else if (rules.length > 0) this.record(call, "allow", "auto", `${rules.join(", ")}: ${summary}`);
+			else this.record(call, "allow", "policy", summary);
 			return undefined;
 		}
 
@@ -445,6 +472,23 @@ export class PermissionGateway {
 		}
 		this.record(call, "deny", "user", summary);
 		return { block: true, reason: "Blocked: the user denied this action." };
+	}
+
+	/**
+	 * The `readonly-shell` rule: only the model's own `bash` tool, never `job send_input` (stdin goes to any process) or
+	 * `pi.exec`; never a hard class; never with a shell prefix or path from settings; not on Windows, whose shells
+	 * this grammar was not checked against.
+	 */
+	private isReadonlyShellCall(call: CallLabel, action: Action): boolean {
+		return (
+			action.kind === "exec" &&
+			call.toolName === "bash" &&
+			call.caller === undefined &&
+			process.platform !== "win32" &&
+			!this.options.shellIsCustomized?.() &&
+			hardClass(action) === undefined &&
+			isReadonlyShell(action.command, this.options.getCwd(), getShellEnv())
+		);
 	}
 
 	/**

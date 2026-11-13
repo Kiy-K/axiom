@@ -423,13 +423,13 @@ describe("PermissionGateway mode switching", () => {
 		expect(gateway.mode).toBe("manual");
 		interactive = true;
 		expect(gateway.mode).toBe("auto");
-		// Until the positive rules exist, auto relaxes nothing: a shell command still asks.
+		// A project script is never auto-allowed (D2): it still asks.
 		let asked = 0;
 		onAsk = () => {
 			asked++;
 			return "Deny";
 		};
-		expect((await gateway.authorize(bash("ls")))?.block).toBe(true);
+		expect((await gateway.authorize(bash("npm test")))?.block).toBe(true);
 		expect(asked).toBe(1);
 	});
 

@@ -6958,7 +6958,8 @@ export class InteractiveMode {
 
 	private describeModeCaveat(requested: PermissionMode, effective: PermissionMode): string {
 		if (requested === "auto" && effective === "manual") return ' ("auto" runs as manual here: CI is set)';
-		if (requested === "auto") return " (auto currently allows nothing beyond manual)";
+		if (requested === "auto")
+			return " (auto allows trusted edits and a few read-only commands; a shell is otherwise opaque, see docs/axiom/permissions.md)";
 		return "";
 	}
 
@@ -6993,7 +6994,7 @@ export class InteractiveMode {
 				);
 			text = [
 				`Permission mode: ${permissions.mode}${permissions.mode === "yolo" ? " (gateway off; use /mode manual, or set permissionMode in settings)" : ""}`,
-				...(permissions.mode === "accept-edits"
+				...(permissions.mode === "accept-edits" || permissions.mode === "auto"
 					? [`Edit trust: ${permissions.editTrustActive ? "active" : "inactive"}`]
 					: []),
 				...(permissions.untrustedSource === undefined

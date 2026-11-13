@@ -252,6 +252,16 @@ describe("shell risk classification", () => {
 		expect(risks.includes("privilege") || risks.includes("elevation")).toBe(true);
 	});
 
+	// Found by the P6 S4 replay: a word such as `constructor` used to find a function on Object.prototype in the
+	// subcommand tables, so `grep "constructor" f` threw and the gateway denied it as "Permission check failed".
+	it("reads words that are names on Object.prototype as ordinary arguments", () => {
+		for (const word of ["constructor", "toString", "hasOwnProperty", "__proto__", "valueOf"]) {
+			expect(classifyShellCommand(`grep ${word} a.ts`), word).toEqual([]);
+			expect(classifyShellCommand(`${word} a.ts`), word).toEqual([]);
+			expect(classifyShellCommand(`git ${word} a.ts`), word).toEqual([]);
+		}
+	});
+
 	it("does not call a quoted word that merely contains sudo a privilege", () => {
 		expect(classifyShellCommand('git commit -m "fix; sudo thing"')).toEqual([]);
 		expect(classifyShellCommand("echo 'a; sudo b'")).toEqual([]);

@@ -14,6 +14,7 @@ export const AUDIT_MAX_BYTES = 5 * 1024 * 1024;
 export type DecisionSource =
 	| "policy" // the rules decided without asking
 	| "accept-edits" // a trusted, recoverable built-in edit
+	| "auto" // a positive rule of `auto` allowed it; the entry's detail starts with the rule id
 	| "grant" // a live grant covered the call
 	| "user" // the user answered a prompt
 	| "user-command" // the user typed the command themselves

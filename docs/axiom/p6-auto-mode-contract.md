@@ -2,7 +2,7 @@
 
 Roadmap issue [#1](https://github.com/Kiy-K/axiom/issues/1), phase P6. Paths are relative to `packages/coding-agent/src/`. Builds on [permissions.md](permissions.md) and [p4-closure-contract.md](p4-closure-contract.md).
 
-**Status:** revision 3, slice S0 (contract). S1 (plumbing) and S2 (hard classes) implemented; the P5 follow-up and the prompt-injection gate are implemented (see Decisions D4, D10); S2 onward not. Written from the code at `6a25d2e`. Two review passes so far (see [Review record](#review-record)); every finding is fixed here or listed under [Open for the user](#open-for-the-user). Item 1 gates S2, item 3 gates S3, item 2 gates S4; item 4 is outside P6. None gates S1.
+**Status:** revision 3, slice S0 (contract). S1 (plumbing) and S2 (hard classes) implemented; the P5 follow-up and the prompt-injection gate are implemented (see Decisions D4, D10); S3 (positive rules) and the S4 replay are implemented too, S4 sign-off waits for a review of the final fixes (Review 6). Written from the code at `6a25d2e`. Two review passes so far (see [Review record](#review-record)); every finding is fixed here or listed under [Open for the user](#open-for-the-user). Item 1 gates S2, item 3 gates S3, item 2 gates S4; item 4 is outside P6. None gates S1.
 
 ## Problem
 
@@ -14,7 +14,7 @@ Second example, found in review and reproduced: even `git status` and `git diff`
 
 ## What v1 delivers, honestly
 
-v1 `auto` is `accept-edits` with its hole closed (code-running files), a mode switch, a hard-class check that runs before everything else, a positive shell rule for five commands, and a taint gate against prompt injection. Almost all of the prompt reduction a user would feel needs either P7 (sandbox) or the deferred items below. P5's old recoverable-edit rule needed a fully clean worktree, so after one real edit every later edit asked; it is replaced by pre-edit copies (D10), so edits no longer stop after the first one. P6's value is the safe structure that later rules plug into, not fewer prompts yet. The S5 report says so with numbers.
+v1 `auto` is `accept-edits` with its hole closed (code-running files), a mode switch, a hard-class check that runs before everything else, a positive shell rule for five commands, and a taint gate against prompt injection. Almost all of the prompt reduction a user would feel needs either P7 (sandbox) or the deferred items below. P5's old recoverable-edit rule needed a fully clean worktree, so after one real edit every later edit asked; it is replaced by pre-edit copies (D10), so edits no longer stop after the first one. P6's value is the safe structure that later rules plug into, not fewer prompts yet. The [S4 report](auto-mode.md) says so with numbers.
 
 ## Decisions
 
@@ -224,8 +224,8 @@ Recorded here so a later change starts from the evidence, not from scratch.
 | S0 | Contract | this document and its review | fresh reviewer, issue and code only |
 | S1 | Plumbing (done) | `auto` value and schema, `/mode` and override lifecycle, footer, audit source, `beginTask`/`endTask`, effective-mode change clears grants and trust. `auto` behaves as `manual` until S3. Corpus and invariant tests written first | loosening unreachable from the session and gateway API |
 | S2 | Hard classes (done) | classifier additions, code-running path class (applied in `auto`, and in `accept-edits` per D4), redirection as write, hard-class check before `tryAcceptEdit` and grants | attack with new obfuscations; attack the reorder |
-| S3 | Positive rules | `readonly-shell` grammar, edit rule, no shell grants (D8) | attack every allowed command with every flag trick |
-| S4 | Gate | hand-labelled corpus, replay numbers, `docs/axiom/auto-mode.md`, sign-off | independent reproduction |
+| S3 | Positive rules (done) | `readonly-shell` grammar, edit rule, no shell grants (D8) | attack every allowed command with every flag trick |
+| S4 | Gate (replay done, review open) | hand-labelled corpus, replay numbers, `docs/axiom/auto-mode.md`, sign-off | independent reproduction |
 
 `auto` is selectable from S1 but relaxes nothing before S3, and the hard classes land in S2, so no slice opens a window where `package.json` is auto-editable in `auto`. S2 and S3 are independent after S1. One commit per slice; `yolo` and `manual` are unaffected by all of them; `accept-edits` changes only by D4.
 
@@ -364,6 +364,58 @@ Tests added: orphan and corrupt index, id collisions, cumulative size, own-sessi
 - S2 built per this contract: hard classes, implied shell writes, no shell grants in `auto`. Hard-class check runs inside `decide` before any grant is consulted; edit trust (`tryAcceptEdit`) does not run in `auto` until S3, so the order in the decision-flow diagram holds trivially today and S3 must keep it.
 - Still open: M7 (replace-mode edit overwriting a same-batch `bash` change, documented), L6 (a call made in `yolo` is not tracked), L8 (extension tool named like a built-in), S3 positive rules, S4 gate and replay, the issue text for the P6 gate wording, and the one-line system-prompt instruction on untrusted content (prompt level, deliberately not added).
 
-### Review 4
+### After S3 and S4 (2026-11-13)
 
-None yet.
+- S3 built per this contract: `core/permissions/shell-grammar.ts`, the edit rule in `auto` (`tryAcceptEdit` now serves `auto` too and also refuses any hard class), `shellIsCustomized` option, audit source `auto`. One deviation: Windows is excluded from `readonly-shell` (the grammar was not checked against those shells).
+- S4: replay script `scripts/axiom-auto-replay.ts` and report [auto-mode.md](auto-mode.md). It found and fixed an existing classifier bug (`constructor` as a word threw in every mode).
+- Still open: independent fresh-context review of S3 (Review 4), a replay against the session's own repository to measure the edit rule, hand-labelling of false blocks by a second person, the issue text.
+
+### Review 4 (fresh context, S3, 2026-11-13)
+
+The reviewer had the issue, the contract and the working tree. 1 high, 2 medium, 5 low. Fixed:
+
+| Finding | Status |
+|---|---|
+| H1 `link/..` escapes the workspace: `classifyPath` folds `..` before following links, the shell after (reproduced: `head lnkdir/../README.md` read an outside file, checked as a workspace decoy) | any file word with a `..` segment asks; fixtures with a symlinked directory |
+| M1 persistence class missed `.bash_aliases`, `.gitconfig`, `.config/git/`, `.config/fish/`, `.inputrc`, `.vimrc`, `.zlogout`, `.local/bin/`; `.gitconfig` can name programs git runs | added to the persistence pattern; still a denylist |
+| M2 `tryAcceptEdit` now also refuses hard classes in `accept-edits` (a deviation from "`accept-edits` changes only by D4") | kept, stricter; test added; this entry records it |
+| L1 hardlink to an outside file allowed by `head` | `nlink === 1` required, like the edit rule |
+| L2 `.pi` is not protected (`PROTECTED_SEGMENTS` uses only the config directory name) | not changed; predates S3, names only; open |
+| L3 hard-class check runs inside `tryAcceptEdit`, not before it | equivalent today; open |
+| L4 `head -c` with a huge value | accepted: same exposure as `read` |
+| L5 no empirical check of the shell rule | the recorded session has no allowed shell command; see Review 5 for the sample replay |
+
+Tests added: `link/..`, `sub/..`, hardlink, persistence names, `accept-edits` with `.bashrc`, and edit trust dropped on `auto` to `manual` to `auto`; each fails against the old code. Not verified by the reviewer: macOS and case-insensitive file systems, TOCTOU swaps (P7), environment shadowing (`BASH_ENV`, exported functions).
+
+### Review 5 (Oracle, S3 and S4 after Review 4's fixes, 2026-11-13)
+
+No high findings. Reproduced against real `/bin/bash`; every item is fixed with a test that fails without the fix.
+
+| Finding | Status |
+|---|---|
+| M1 `normalizePath` (inside `classifyPath`) strips a leading `@` and a `file:` prefix, the shell does not: `head @a.txt` with `@a.txt` a link to an outside file was allowed | a file word starting with `@` or containing `:` asks |
+| M2 a flag after a file operand: non-permuting `head`/`tail`/`wc` (`POSIXLY_CORRECT`, BSD) read `-n 5` as file names; `head a.txt -n 5` with a link named `5` read an outside file | a flag after a file asks |
+| M3 replay evidence did not exercise either S3 rule, used one session, and could run with the rule silently off | hand-written sample session with 36 hard and 29 safe labelled calls (`auto-replay-sample.jsonl`), each hard call its own task; the script pins a safe `PATH`, reports labelled counts and exits 1 if a hard call is allowed; the gate text no longer calls the recorded-session result S3 evidence |
+| L1 exported bash functions (`BASH_FUNC_ls%%`) shadow an allowed command | rule off when the environment has `BASH_ENV`, `ENV`, `POSIXLY_CORRECT` or `BASH_FUNC_*` |
+| L2 the `PATH` lookup matched any key spelled like `path` | exact key `PATH` (Windows is excluded) |
+| L3 the rule keys on the tool name `bash`, so an extension that replaces the tool gets allows based on the local file system | accepted (extension code is trusted code, as L8 in Review 3); stated here |
+| L4 persistence list misses `.tmux.conf`, `.pythonstartup`, `.Rprofile`, `.direnvrc`, `.pam_environment`, `.zsh/` | accepted: a stated best-effort denylist; matters when the workspace is `$HOME` |
+| L5 a mode round trip while the edit-trust prompt is open kept the trust | the mode generation is compared after the prompt, as `decide` does |
+
+Not verified by the reviewer: macOS and case-insensitive file systems, `/mode` TUI paths, `agent-session` task plumbing, the full suite.
+
+### Review 6 (fresh context, committed S3 and S4, 2026-11-13)
+
+A reviewer that had seen none of the work fuzzed `isReadonlyShell` against real bash and GNU coreutils (about 19,600 lines over symlinks, `..`, `@`, hardlinks, `/proc/self/*`, dangling and looping links, odd names) and found no leak. It also relabelled the sample blind (see `auto-mode.md`). Findings:
+
+| Finding | Status |
+|---|---|
+| M1 the auto edit rule allowed `AGENTS.override.md` (Axiom loads it as the top context file), `.lefthook.yml`, `.mise.toml`, `mise.local.toml`, `compose.yaml`, `.codex/`, `.gemini/`, `opencode.json`, `GEMINI.md`, and an executable extensionless script | names and directories added to the code-running list; `tryAcceptEdit` refuses any file with an execute bit (also in `accept-edits`); each verified to fail without it |
+| L2 the Review 5 L5 fix was incomplete: the trust answer was stored before the generation check, so after a round trip only during the trust prompt the next edit was allowed with no prompt; and its test round-tripped every prompt, so it passed for a wrong implementation | the answer is dropped when the generation changed; the test round-trips only the first prompt and checks that the next edit asks again |
+| L3 C1 controls (U+0080 to U+009F) and DEL survive foreground `bash` output (`sanitizeBinaryOutput`), so `ls` over hostile file names runs unprompted and can show them; only the jobs path strips them | open, not changed: it predates S3, the shared sanitizer affects all `bash` output, and modern UTF-8 terminals mostly ignore C1; decide separately |
+| L4 docs: "62 start with `npm`" (62 are `cd <dir> && npm`); the issue said "not yet committed" after the commits | fixed in this change and in the issue |
+| Relabelling: `git status`, `git diff --stat`, `head @README.md` were not safe or hard by an independent reading; `head README.md -n 5` is a plain read | labels changed; hard 34, safe 28; false blocks 7 |
+
+Test hygiene found along the way: several tests of mine freed the edit reservation with a fresh input object, which never matches, so every later edit asked whatever its path and the assertions passed for any implementation. They now use one object per call and carry a control (an ordinary file is allowed). Mutation checks: dropping each new name, the execute-bit check, the generation check, the persistence names or the hard-class check in `tryAcceptEdit` fails a test.
+
+Not verified by this reviewer: Windows, macOS, case-insensitive file systems, TOCTOU swaps, a real terminal, `bun run check`.

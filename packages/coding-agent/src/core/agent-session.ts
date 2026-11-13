@@ -456,6 +456,7 @@ export class AgentSession {
 		getSessionId: () => this.sessionId,
 		getPrompter: () => (this._extensionRunner.hasUI() ? this._extensionRunner.getUIContext() : undefined),
 		canRequestEditTrust: () => this._extensionMode === "tui" && process.env.CI === undefined,
+		shellIsCustomized: () => !!this.settingsManager.getShellCommandPrefix() || !!this.settingsManager.getShellPath(),
 		auditFile: join(getAgentDir(), "audit", "permissions.jsonl"),
 		checkpointRoot: join(getAgentDir(), "checkpoints"),
 		onWarning: (error) => this._extensionRunner.emitError({ extensionPath: "<permissions>", event: "audit", error }),

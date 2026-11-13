@@ -3,7 +3,7 @@
 
 import { basename } from "node:path";
 import { classifyPath } from "./paths.ts";
-import { parseCommands } from "./shell.ts";
+import { own, parseCommands } from "./shell.ts";
 import type { Action, ActionVerdict, ResolvedPath, ShellRisk } from "./types.ts";
 
 /** Words that run the command after them, so `timeout 5 crontab -e` is `crontab`. */
@@ -60,7 +60,7 @@ const GIT_CONFIG_READ_FLAGS = new Set([
 
 /** Paths that make something run later, or let someone in: shell startup files, scheduled jobs, service units, keys. */
 const PERSISTENT_PATH =
-	/(?:^|\/)(?:\.bashrc|\.bash_profile|\.bash_login|\.bash_logout|\.profile|\.zshrc|\.zprofile|\.zshenv|\.zlogin|\.xinitrc|\.xprofile|authorized_keys|crontab)$|^\/etc\/|^\/var\/spool\/cron|\/Library\/Launch(?:Agents|Daemons)\/|\/\.config\/systemd\/|\/\.config\/autostart\//;
+	/(?:^|\/)(?:\.bashrc|\.bash_profile|\.bash_login|\.bash_logout|\.bash_aliases|\.profile|\.zshrc|\.zprofile|\.zshenv|\.zlogin|\.zlogout|\.xinitrc|\.xprofile|\.inputrc|\.gitconfig|\.vimrc|authorized_keys|crontab)$|\/\.config\/(?:fish|git|nvim)\/|\/\.local\/bin\/|^\/etc\/|^\/var\/spool\/cron|\/Library\/Launch(?:Agents|Daemons)\/|\/\.config\/systemd\/|\/\.config\/autostart\//;
 
 /** Commands whose arguments name files they change: which arguments. */
 const WRITE_COMMANDS: Record<string, "all" | "last" | "after-first" | "tee"> = {
@@ -113,7 +113,7 @@ export function autoShellClass(command: string): string | undefined {
 	for (const line of commandLines(command)) {
 		const name = basename(line[0]);
 		const subs = line.slice(1, 8).filter((word) => !word.startsWith("-"));
-		if (AUTH_COMMANDS.has(name) || AUTH_SUBCOMMANDS[name]?.includes(subs[0] ?? ""))
+		if (AUTH_COMMANDS.has(name) || own(AUTH_SUBCOMMANDS, name)?.includes(subs[0] ?? ""))
 			return "auth or permission change";
 		if (
 			name === "git" &&
@@ -158,7 +158,7 @@ export function derivedWrites(command: string, cwd: string): { writes: Action[];
 
 		const name = basename(line[0]);
 		const operands = line.slice(1).filter((word) => !word.startsWith("-") && !/^\d*>/.test(word));
-		const kind = WRITE_COMMANDS[name];
+		const kind = own(WRITE_COMMANDS, name);
 		if (kind === "all" || kind === "tee") {
 			for (const word of operands) target(word);
 		} else if (kind === "last") {

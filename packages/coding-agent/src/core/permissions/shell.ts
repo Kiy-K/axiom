@@ -34,6 +34,11 @@ const SHELL_INTERPRETERS = new Set(["sh", "bash", "zsh", "dash", "fish", "ksh", 
  */
 const ENVIRONMENT_DUMP = /(?:^|[;&|(`\n]|\$\()[ \t]*(?:printenv\b|(?:env|export|declare|set)\s*(?:$|[|;&)`<>\n]|-p\b))/;
 
+/** An own entry of a table keyed by command word: a plain lookup of `constructor` or `toString` would find a function. */
+export function own<T>(table: Record<string, T>, key: string): T | undefined {
+	return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
 /** Tools whose listed subcommands send something out or change shared state. */
 const PUBLISH_SUBCOMMANDS: Record<string, string[]> = {
 	git: ["push"],
@@ -246,8 +251,8 @@ export function classifyShellCommand(command: string): ShellRisk[] {
 		if (SHELL_INTERPRETERS.has(name)) risks.add("opaque");
 		if (looksLikeSecretPath(token) || /^\/proc\/[^/]+\/environ$/.test(token)) risks.add("secrets");
 
-		if (hasSubcommand(tokens, index, PUBLISH_SUBCOMMANDS[name])) risks.add("publish");
-		if (hasSubcommand(tokens, index, NETWORK_SUBCOMMANDS[name])) risks.add("network");
+		if (hasSubcommand(tokens, index, own(PUBLISH_SUBCOMMANDS, name))) risks.add("publish");
+		if (hasSubcommand(tokens, index, own(NETWORK_SUBCOMMANDS, name))) risks.add("network");
 	});
 	return [...risks];
 }

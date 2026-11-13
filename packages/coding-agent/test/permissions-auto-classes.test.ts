@@ -125,7 +125,9 @@ describe("auto mode hard classes", () => {
 	});
 
 	it.each([
-		["ls"],
+		['grep "constructor" a.txt'], // a word that names a function on Object.prototype is an ordinary argument
+		["constructor a.txt"],
+		["ls -l"], // `ls` itself is allowed by the S3 rule `readonly-shell`; `-l` is outside it
 		["echo hi"],
 		["echo hi > out.txt"],
 		["cp a.txt b.txt"],
