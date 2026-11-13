@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PermissionGateway } from "../src/core/permissions/gateway.ts";
+import { fileTag, lineHash } from "../src/core/tools/hashline.ts";
 
 // Issue #1: automatic edit permission must be explicit, recoverable (a pre-edit copy is kept) and limited to the built-in edit tool.
 describe("accept-edits permission", () => {
@@ -108,6 +109,54 @@ describe("accept-edits permission", () => {
 		};
 		expect(await gateway.authorize(second)).toBeUndefined();
 		expect(readFileSync(join(sessionDir(), "2.snap"), "utf8")).toBe("changed\n");
+	});
+
+	it("allows a hashline edit against the current tag, keeps the copy, and asks for a stale tag", async () => {
+		const original = Buffer.from("original\n");
+		const tag = fileTag(original);
+		const edit = (id: string, useTag: string) => ({
+			toolName: "edit",
+			toolCallId: id,
+			builtinEdit: "hashline" as const,
+			input: {
+				path: "file.txt",
+				tag: useTag,
+				edits: [{ op: "replace", start: `1#${lineHash(tag, 1, "original")}`, text: "changed" }],
+			},
+		});
+		answer = "Deny";
+		expect((await gateway.authorize(edit("stale", "0000")))?.block).toBe(true);
+		answer = "Trust edits for this session";
+		const good = edit("good", tag);
+		expect(await gateway.authorize(good)).toBeUndefined();
+		expect(readFileSync(join(sessionDir(), "1.snap"), "utf8")).toBe("original\n");
+	});
+
+	it("also keeps a copy of a file whose edit the user approves at a prompt, but not in manual and not of a new file", async () => {
+		writeFileSync(join(root, "package.json"), "{}\n");
+		answer = "Allow once";
+		const manifest = {
+			...call("m", "replace"),
+			input: { path: "package.json", edits: [{ oldText: "{}", newText: "{ }" }] },
+		};
+		expect(await gateway.authorize(manifest)).toBeUndefined();
+		const copies = await gateway.checkpoints.list();
+		expect(copies.map((copy) => copy.path)).toEqual([join(root, "package.json")]);
+		expect(readFileSync(join(sessionDir(), "1.snap"), "utf8")).toBe("{}\n");
+
+		const created = { toolName: "write", toolCallId: "w", input: { path: "brand-new.txt", content: "x" } };
+		expect(await gateway.authorize(created)).toBeUndefined();
+		expect(await gateway.checkpoints.list()).toHaveLength(1);
+
+		const manual = new PermissionGateway({
+			getMode: () => "manual",
+			getCwd: () => root,
+			getSessionId: () => "manual",
+			checkpointRoot: store,
+			getPrompter: () => ({ select: async () => "Allow once" }),
+		});
+		expect(await manual.authorize(manifest)).toBeUndefined();
+		expect(await manual.checkpoints.list()).toHaveLength(0);
 	});
 
 	it("asks instead of allowing an edit whose copy could not be kept", async () => {

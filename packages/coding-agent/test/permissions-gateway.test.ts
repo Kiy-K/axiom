@@ -517,11 +517,13 @@ describe("PermissionGateway mode switching", () => {
 			offered.push(options);
 			return grantChoice(options) ?? "Allow once";
 		};
-		await gateway.authorize(bash("ls"));
+		// A shell command never offers a grant in auto (D8), so the workspace write grant stands for the rule.
+		const write = { toolName: "write", toolCallId: "w1", input: { path: "a.txt", content: "x" } };
+		await gateway.authorize(write);
 		expect(grantChoice(offered[0] ?? [])).toBeUndefined();
 
 		gateway.beginTask();
-		await gateway.authorize(bash("ls"));
+		await gateway.authorize(write);
 		expect(grantChoice(offered[1] ?? [])).toBeDefined();
 		expect(gateway.grants.list()).toHaveLength(1);
 		gateway.endTask();

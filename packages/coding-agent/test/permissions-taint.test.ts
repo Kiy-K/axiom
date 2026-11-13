@@ -110,12 +110,16 @@ describe("untrusted content in a task", () => {
 	it("ignores live grants and offers none once tainted", async () => {
 		mode = "auto";
 		choose = (options) => options.find((option) => option.startsWith("Allow for")) ?? "Allow once";
-		await run("bash", { command: "ls" });
+		await run("write", { path: "a.txt", content: "x" });
 		expect(gateway.grants.list()).toHaveLength(1);
+		// The grant covers the next write until untrusted content arrives.
+		asked = [];
+		expect(await run("write", { path: "a.txt", content: "y" })).toBeUndefined();
+		expect(asked).toHaveLength(0);
 		await run("some_mcp_tool", {});
 		asked = [];
 		choose = () => "Allow once";
-		expect(await run("bash", { command: "ls" })).toBeUndefined();
+		expect(await run("write", { path: "a.txt", content: "z" })).toBeUndefined();
 		expect(asked).toHaveLength(1);
 		expect(asked[0]?.some((option) => option.startsWith("Allow for"))).toBe(false);
 	});
@@ -212,4 +216,29 @@ describe("untrusted content in a task", () => {
 		for (let i = 0; i < TAINT_ASK_BUDGET; i++) expect(await run("bash", { command: `echo ${i}` })).toBeUndefined();
 		expect((await run("bash", { command: "echo more" }))?.block).toBe(true);
 	});
+	it.each([
+		"npx some-package",
+		"bunx some-package",
+		"pnpm dlx some-package",
+		"python3 -c 'import urllib.request'",
+		"node -e 'fetch(1)'",
+		"git submodule update --init",
+		"cargo build",
+		"go mod download",
+		"poetry install",
+		"FOO=1 npx x",
+	])("marks the task after `%s`, which the shell classifier does not name as network", async (command) => {
+		choose = () => "Allow once";
+		await run("bash", { command });
+		expect(gateway.untrustedSource).toBe("the output of a network command");
+	});
+
+	it.each(["ls", "echo hi", "git status", "git log", "python3 script.py", "node build.js", "cargo --version"])(
+		"does not mark the task after `%s`",
+		async (command) => {
+			choose = () => "Allow once";
+			await run("bash", { command });
+			expect(gateway.untrustedSource).toBeUndefined();
+		},
+	);
 });

@@ -60,6 +60,7 @@ function covers(scope: GrantScope, action: Action): boolean {
 		case "extension":
 			return scope.kind === "extension" && scope.toolName === action.toolName;
 		case "unsupported":
+		case "undetermined":
 			return false;
 	}
 }

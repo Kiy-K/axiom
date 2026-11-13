@@ -2,7 +2,7 @@
 
 Roadmap issue [#1](https://github.com/Kiy-K/axiom/issues/1), phase P6. Paths are relative to `packages/coding-agent/src/`. Builds on [permissions.md](permissions.md) and [p4-closure-contract.md](p4-closure-contract.md).
 
-**Status:** revision 3, slice S0 (contract). S1 (plumbing) implemented; the P5 follow-up and the prompt-injection gate are implemented (see Decisions D4, D10); S2 onward not. Written from the code at `6a25d2e`. Two review passes so far (see [Review record](#review-record)); every finding is fixed here or listed under [Open for the user](#open-for-the-user). Item 1 gates S2, item 3 gates S3, item 2 gates S4; item 4 is outside P6. None gates S1.
+**Status:** revision 3, slice S0 (contract). S1 (plumbing) and S2 (hard classes) implemented; the P5 follow-up and the prompt-injection gate are implemented (see Decisions D4, D10); S2 onward not. Written from the code at `6a25d2e`. Two review passes so far (see [Review record](#review-record)); every finding is fixed here or listed under [Open for the user](#open-for-the-user). Item 1 gates S2, item 3 gates S3, item 2 gates S4; item 4 is outside P6. None gates S1.
 
 ## Problem
 
@@ -223,7 +223,7 @@ Recorded here so a later change starts from the evidence, not from scratch.
 |---|---|---|---|
 | S0 | Contract | this document and its review | fresh reviewer, issue and code only |
 | S1 | Plumbing (done) | `auto` value and schema, `/mode` and override lifecycle, footer, audit source, `beginTask`/`endTask`, effective-mode change clears grants and trust. `auto` behaves as `manual` until S3. Corpus and invariant tests written first | loosening unreachable from the session and gateway API |
-| S2 | Hard classes | classifier additions, code-running path class (applied in `auto`, and in `accept-edits` per D4), redirection as write, hard-class check before `tryAcceptEdit` and grants | attack with new obfuscations; attack the reorder |
+| S2 | Hard classes (done) | classifier additions, code-running path class (applied in `auto`, and in `accept-edits` per D4), redirection as write, hard-class check before `tryAcceptEdit` and grants | attack with new obfuscations; attack the reorder |
 | S3 | Positive rules | `readonly-shell` grammar, edit rule, no shell grants (D8) | attack every allowed command with every flag trick |
 | S4 | Gate | hand-labelled corpus, replay numbers, `docs/axiom/auto-mode.md`, sign-off | independent reproduction |
 
@@ -355,6 +355,14 @@ The reviewer read the uncommitted tree and the deleted git-based rule. No high f
 | L8 an extension tool named like a built-in is taken for it | accepted (extension code is trusted code) |
 
 Tests added: orphan and corrupt index, id collisions, cumulative size, own-session prune, restore reserve and mode, restore audit and refusal while running, mark set at finish and not at authorize (mutation checked), abort leaves no mark, mark survives non-user runs and mode switches, budget exemption, extra code-running paths. Not added: a hashline-mode accept-edits session test (the accept-edits suite uses `replace`).
+
+### After review 3 (2026-11-12): follow-ups
+
+- M5 (network classifier gaps): the taint mark now also fires on `npx`, `bunx`, `pnpm dlx`, `python -c`, `node -e`, `git submodule`, `cargo build`, `go mod`, `poetry`, `mvn`, `gradle`, `dotnet`, `deno`, `docker run` and similar; still lexical.
+- L3 (no copy for approved edits): a best-effort copy is now kept for an `edit` or `write` the user approves, in `accept-edits` and `auto`.
+- Missing hashline-mode test: added at gateway level.
+- S2 built per this contract: hard classes, implied shell writes, no shell grants in `auto`. Hard-class check runs inside `decide` before any grant is consulted; edit trust (`tryAcceptEdit`) does not run in `auto` until S3, so the order in the decision-flow diagram holds trivially today and S3 must keep it.
+- Still open: M7 (replace-mode edit overwriting a same-batch `bash` change, documented), L6 (a call made in `yolo` is not tracked), L8 (extension tool named like a built-in), S3 positive rules, S4 gate and replay, the issue text for the P6 gate wording, and the one-line system-prompt instruction on untrusted content (prompt level, deliberately not added).
 
 ### Review 4
 

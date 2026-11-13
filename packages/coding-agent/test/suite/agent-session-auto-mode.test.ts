@@ -39,26 +39,29 @@ describe("AgentSession auto mode plumbing", () => {
 				},
 			}),
 		});
-		const runBash = async (source?: "extension") => {
+		const runTool = async (name: string, args: Parameters<typeof fauxToolCall>[1], source?: "extension") => {
 			harness.setResponses([
-				fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" }),
 				fauxAssistantMessage("done"),
 			]);
 			await harness.session.prompt("go", source ? { source } : undefined);
 		};
-		return { harness, offers, runBash };
+		const runBash = (source?: "extension") => runTool("bash", { command: "echo hi" }, source);
+		// A shell command offers no grant in auto, so a write to the workspace stands for "can grant".
+		const runWrite = (source?: "extension") => runTool("write", { path: "grant-probe.txt", content: "x" }, source);
+		return { harness, offers, runBash, runWrite };
 	}
 
 	it("offers a grant in a user-started auto run and clears it when the run settles", async () => {
-		const { harness, offers, runBash } = await start("auto");
-		await runBash();
+		const { harness, offers, runWrite } = await start("auto");
+		await runWrite();
 		expect(offers[0]?.some((option) => option.startsWith("Allow for"))).toBe(true);
 		expect(harness.session.permissions.grants.list()).toHaveLength(0);
 	});
 
 	it("offers no grant in an auto run an extension started", async () => {
-		const { harness, offers, runBash } = await start("auto");
-		await runBash("extension");
+		const { harness, offers, runWrite } = await start("auto");
+		await runWrite("extension");
 		expect(offers[0]?.some((option) => option.startsWith("Allow for"))).toBe(false);
 		expect(harness.session.permissions.grants.list()).toHaveLength(0);
 	});

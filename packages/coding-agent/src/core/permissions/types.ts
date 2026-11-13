@@ -44,7 +44,9 @@ export type Action =
 	/** A tool the gateway knows nothing about (extension, MCP, codemode). Its effects are unknown. */
 	| { kind: "extension"; toolName: string }
 	/** A call the gateway cannot interpret, such as a built-in name with a replaced schema. Denied in `manual`. */
-	| { kind: "unsupported"; toolName: string; reason: string };
+	| { kind: "unsupported"; toolName: string; reason: string }
+	/** A write a shell line implies whose target a lexical read cannot determine. Only `auto` produces it. */
+	| { kind: "undetermined"; reason: string };
 
 /** What a grant covers. Matching is exact on `command` and `toolName`, and by containment on `dir`. */
 export type GrantScope =

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import type { EditMode } from "../settings-manager.ts";
 import { MAX_HASHLINE_BYTES } from "../tools/hashline.ts";
 import { type AuditEntry, AuditLog, type DecisionSource } from "./audit.ts";
+import { autoVerdict, impliedActions } from "./auto-classes.ts";
 import { EditCheckpoints } from "./checkpoints.ts";
 import { editLeavesContent } from "./edit-content.ts";
 import { GRANT_TTL_MS, GrantStore } from "./grants.ts";
@@ -227,7 +228,10 @@ export class PermissionGateway {
 			const actions = actionsForToolCall(call.toolName, call.input, this.options.getCwd());
 			if (await this.tryAcceptEdit(call, actions, signal)) return undefined;
 			const block = await this.decide(call, actions, signal);
-			if (!block) this.expectUntrustedResult(call, actions);
+			if (!block) {
+				this.expectUntrustedResult(call, actions);
+				await this.keepCopyOfApprovedWrite(call, actions);
+			}
 			return block;
 		} catch (error) {
 			return this.blockOnError(call, error);
@@ -359,10 +363,17 @@ export class PermissionGateway {
 
 	private async decide(
 		call: CallLabel,
-		actions: Action[],
+		requested: Action[],
 		signal: AbortSignal | undefined,
 	): Promise<PermissionBlock | undefined> {
-		const verdicts = actions.map((action) => ({ action, verdict: judgeAction(action) }));
+		// In `auto` the writes a shell line implies join the call, and a hard class is never covered by a grant: the
+		// verdict has no grant to offer, so none is consulted. Only `auto` does this, and it only ever tightens.
+		const auto = this.mode === "auto";
+		const actions = auto ? [...requested, ...impliedActions(requested, this.options.getCwd())] : requested;
+		const verdicts = actions.map((action) => ({
+			action,
+			verdict: auto ? autoVerdict(action, judgeAction(action)) : judgeAction(action),
+		}));
 		const summary = actions.map(describe).join("; ") || "no direct effect";
 
 		const denied = verdicts.find((entry) => entry.verdict.decision === "deny");
@@ -473,6 +484,27 @@ export class PermissionGateway {
 		return this.untrustedSource === undefined ? this.grants.find(action) : undefined;
 	}
 
+	/**
+	 * Keep a copy of a file an `edit` or `write` the user approved is about to change, so `/restore` covers it too. Best
+	 * effort: the user already consented, so a failed copy never blocks. Credentials are not copied into the store.
+	 * Only in the modes that relax prompts, where an edit can be the one a prompt-injected agent asked for.
+	 */
+	private async keepCopyOfApprovedWrite(call: ToolCallRequest, actions: Action[]): Promise<void> {
+		const mode = this.mode;
+		if ((mode !== "accept-edits" && mode !== "auto") || (call.toolName !== "edit" && call.toolName !== "write"))
+			return;
+		for (const action of actions) {
+			if (action.kind !== "write" || !action.path.inWorkspace || action.path.protected || action.path.secret)
+				continue;
+			try {
+				const bytes = await readEditableFile(action.path.real);
+				if (bytes) await this.checkpoints.save(action.path.real, bytes);
+			} catch {
+				// A file that does not exist yet (a new `write`) or cannot be read has nothing to keep.
+			}
+		}
+	}
+
 	/** Note that an allowed call's result is untrusted content; it taints the task when the call finishes. */
 	private expectUntrustedResult(call: ToolCallRequest, actions: Action[]): void {
 		const source = untrustedSource(call.toolName, call.input, actions, this.networkCommandSeen);
@@ -548,6 +580,8 @@ export function describe(action: Action): string {
 			return `call tool ${show(action.toolName, 100)}`;
 		case "unsupported":
 			return `${show(action.toolName, 100)}: ${show(action.reason, MAX_DETAIL_CHARS)}`;
+		case "undetermined":
+			return show(action.reason, MAX_DETAIL_CHARS);
 	}
 }
 

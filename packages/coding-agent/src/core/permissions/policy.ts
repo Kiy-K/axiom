@@ -139,5 +139,7 @@ export function judgeAction(action: Action): ActionVerdict {
 			};
 		case "unsupported":
 			return { decision: "deny", reason: `cannot be mediated: ${action.reason}` };
+		case "undetermined":
+			return { decision: "ask", reason: action.reason };
 	}
 }

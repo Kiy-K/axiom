@@ -143,7 +143,7 @@ const WRAPPER_COMMANDS = new Set([
 const KEYWORDS = new Set(["!", "if", "then", "else", "elif", "do", "while", "until"]);
 
 /** The words of each simple command in `command`. Quotes group a word and are removed; operators end a command. */
-function parseCommands(command: string): string[][] {
+export function parseCommands(command: string): string[][] {
 	const commands: string[][] = [[]];
 	let word = "";
 	let inWord = false;
