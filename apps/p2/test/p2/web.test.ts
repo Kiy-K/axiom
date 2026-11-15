@@ -4,7 +4,7 @@ import { createServer, type IncomingHttpHeaders, request } from "node:http";
 import { after, before, describe, it } from "node:test";
 import { WebSocket as NodeWebSocket } from "ws";
 import { Browser, browserTests } from "./browser.ts";
-import { type Fixture, startFixture, webBundle } from "./helpers.ts";
+import { type Fixture, poll, startFixture, webBundle } from "./helpers.ts";
 
 function get(
 	port: number,
@@ -159,13 +159,20 @@ describe("web host", () => {
 			assert.deepEqual(await browser.evaluate("window.cspViolations"), []);
 			// A page of another origin (another port, same site) framing the app: Chromium refuses to render it.
 			await browser.open(`http://127.0.0.1:${framerPort}/`);
-			await new Promise((resolve) => setTimeout(resolve, 1500));
-			const tree = (await browser.call("Page.getFrameTree")) as {
-				frameTree: { childFrames?: { frame: { url: string; unreachableUrl?: string } }[] };
-			};
-			const child = tree.frameTree.childFrames?.[0]?.frame;
-			assert.ok(child, "the framer has its iframe");
-			assert.ok(child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined, JSON.stringify(child));
+			// The refusal commits asynchronously, and the iframe can be missing from the tree on a loaded runner: poll.
+			await poll(
+				async () => {
+					const tree = (await browser.call("Page.getFrameTree")) as {
+						frameTree: { childFrames?: { frame: { url: string; unreachableUrl?: string } }[] };
+					};
+					const child = tree.frameTree.childFrames?.[0]?.frame;
+					return (
+						child !== undefined && (child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined)
+					);
+				},
+				15_000,
+				"the framed app to be refused",
+			);
 		} finally {
 			await browser.close();
 			await new Promise<void>((resolve) => framer.close(() => resolve()));
