@@ -25,6 +25,8 @@ const allowedExternalPackages = new Set([
 	"kerberos",
 	// Optional debug output coloring.
 	"supports-color",
+	// Its ssh2 dependency uses __dirname and optional native addons, which break in an ESM bundle.
+	"@earendil-works/gondolin",
 ]);
 
 const lazyJitiPlugin = {
@@ -81,7 +83,7 @@ function commonBuildOptions() {
 		banner,
 		bundle: true,
 		define: { PI_BUNDLED_NODE: "true" },
-		external: ["@silvia-odwyer/photon-node"],
+		external: ["@silvia-odwyer/photon-node", "@earendil-works/gondolin"],
 		format: "esm",
 		legalComments: "none",
 		logLevel: "warning",
