@@ -278,6 +278,23 @@
       "description": "Permission gateway mode. \"manual\" asks before edits, shell commands and tools with unknown effects, and denies protected paths. \"accept-edits\" also allows trusted edits. \"auto\" adds positive allow rules in an interactive session and behaves as \"manual\" elsewhere. \"yolo\" (default) turns the gateway off. Global setting only.",
       "default": "yolo"
     },
+    "sandbox": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Run bash and file tools inside a micro-VM that sees only the workspace. Host command execution is refused unless granted. Global setting only.",
+          "default": false
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names of extensions allowed to load while sandbox mode is on. Global setting only."
+        }
+      }
+    },
     "shellCommandPrefix": {
       "type": "string",
       "description": "Prefix prepended to every bash command, for example to enable shell aliases."

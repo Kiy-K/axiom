@@ -175,6 +175,7 @@ export class AgentSessionRuntime {
 		});
 		try {
 			await this.session.stopJobs();
+			await this.session.finishSandbox();
 		} finally {
 			this.beforeSessionInvalidate?.();
 			this.session.dispose();
@@ -420,6 +421,7 @@ export class AgentSessionRuntime {
 		});
 		try {
 			await this.session.stopJobs();
+			await this.session.finishSandbox();
 		} finally {
 			try {
 				this.beforeSessionInvalidate?.();

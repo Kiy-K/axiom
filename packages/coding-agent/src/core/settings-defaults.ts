@@ -29,6 +29,7 @@ export const SETTINGS_DEFAULTS = {
 	quietStartup: false,
 	defaultProjectTrust: "ask",
 	permissionMode: "yolo",
+	sandbox: { enabled: false },
 	collapseChangelog: false,
 	enableInstallTelemetry: true,
 	enableAnalytics: false,

@@ -41,6 +41,23 @@ describe("DefaultResourceLoader", () => {
 			expect(loader.getThemes().themes).toEqual([]);
 		});
 
+		it("loads only allowlisted third-party extensions in sandbox mode", async () => {
+			const extensionsDir = join(cwd, CONFIG_DIR_NAME, "extensions");
+			mkdirSync(extensionsDir, { recursive: true });
+			writeFileSync(join(extensionsDir, "allowed.ts"), "export default function() {}");
+			writeFileSync(join(extensionsDir, "blocked.ts"), "export default function() {}");
+
+			const settingsManager = SettingsManager.inMemory({
+				sandbox: { enabled: true, extensions: [join(extensionsDir, "allowed.ts")] },
+			});
+			const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
+			await loader.reload();
+
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).toEqual([
+				join(extensionsDir, "allowed.ts"),
+			]);
+		});
+
 		it("should not treat a project manifest as the owner of a project extension", async () => {
 			const extensionsDir = join(cwd, CONFIG_DIR_NAME, "extensions");
 			mkdirSync(extensionsDir, { recursive: true });

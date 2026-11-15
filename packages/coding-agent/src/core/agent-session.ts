@@ -129,6 +129,10 @@ import { NestedToolCallRunner } from "./nested-tool-calls.ts";
 import { PermissionGateway } from "./permissions/index.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { finishSandbox } from "./sandbox/finish.ts";
+import { assertHostExecAllowed, type HostExecRoute } from "./sandbox/host-exec-guard.ts";
+import { SANDBOX_POWERSHELL_REFUSAL } from "./sandbox/operations.ts";
+import { SandboxSession } from "./sandbox/session.ts";
 import { exportSessionToJsonl } from "./session-export.ts";
 import {
 	type BranchSummaryEntry,
@@ -499,6 +503,8 @@ export class AgentSession {
 	private _customTools: ToolDefinition[];
 	private _baseToolDefinitions: Map<string, ToolDefinition> = new Map();
 	private _cwd: string;
+	/** Present when `sandbox.enabled` was on at session start; model-reachable commands and file tools go through it. */
+	readonly sandbox: SandboxSession | undefined;
 	private _extensionRunnerRef?: { current?: ExtensionRunner };
 	private _initialActiveToolNames?: string[];
 	/**
@@ -554,12 +560,14 @@ export class AgentSession {
 		this._resourceLoader = config.resourceLoader;
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
+		this.sandbox = this.settingsManager.getSandboxEnabled() ? new SandboxSession(this._cwd) : undefined;
 		this._modelRuntime = config.modelRuntime;
 		// `!command` values an extension gave a provider run when credentials resolve, outside any tool call.
 		// The runtime outlives sessions and may be shared: each session adds its own check, all must allow, and
 		// dispose removes it. The command runs in process.cwd(), which is the session directory in the CLI; the
 		// gateway is told the session directory.
 		this._removeExecAuthorizer = this._modelRuntime.addExecAuthorizer(async (command, args, caller, signal) => {
+			this._assertHostExecAllowed("config-command");
 			const blocked = await this._permissions.authorizeExec(command, args, {
 				cwd: this.sessionManager.getCwd(),
 				extensionPath: caller,
@@ -581,6 +589,10 @@ export class AgentSession {
 				config.allowedToolNames.length === 0 || config.allowedToolNames.some((entry) => entry.startsWith("mcp__"));
 		}
 		this._excludedTools = config.excludedToolNames ? createToolNameMatcher(config.excludedToolNames) : undefined;
+		// A replacement tool set would run on the host and skip the sandbox; refuse it rather than ignore the setting.
+		if (this.sandbox && config.baseToolsOverride) {
+			throw new Error("baseToolsOverride cannot be combined with sandbox mode.");
+		}
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 
@@ -1534,12 +1546,42 @@ export class AgentSession {
 			this._cacheWarmer.cancel();
 		}
 		this._jobs.killSession(this._jobOwner);
+		void this.sandbox?.close();
 		cleanupSessionResources(this.sessionId);
 	}
 
 	/** Stop this session's background jobs gracefully. Called before the session is disposed. */
 	async stopJobs(): Promise<void> {
 		await this._jobs.stopSession(this._jobOwner);
+	}
+
+	/**
+	 * Sandbox mode only: moves the guest's workspace changes to the host before the VM is closed. Call after the last
+	 * turn and before `dispose()`, like `stopJobs()`; the write layer lives in memory and is lost on dispose.
+	 */
+	async finishSandbox(): Promise<void> {
+		const sandbox = this.sandbox;
+		if (!sandbox) return;
+		const state = await sandbox.ready;
+		if (state.kind !== "enforced" || !sandbox.workspace) return;
+		const ui = this._extensionRunner.hasUI() ? this._extensionRunner.getUIContext() : undefined;
+		try {
+			const lines = await finishSandbox(
+				sandbox.workspace,
+				ui,
+				join(getAgentDir(), "sandbox-unapplied", this.sessionId),
+			);
+			for (const line of lines) {
+				if (ui) ui.notify(line, "info");
+				else process.stderr.write(`${line}\n`);
+			}
+		} catch (error) {
+			this._extensionRunner.emitError({
+				extensionPath: "<sandbox>",
+				event: "write-back",
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	/** Permission gateway of this session: mode, live grants and the audit tail. */
@@ -3688,6 +3730,7 @@ export class AgentSession {
 				getThinkingLevel: () => this.thinkingLevel,
 				setThinkingLevel: (level) => this.setThinkingLevel(level),
 				authorizeExec: async (command, args, request) => {
+					this._assertHostExecAllowed("extension-exec");
 					const blocked = await this._permissions.authorizeExec(command, args, request);
 					if (blocked) throw new Error(blocked.reason);
 				},
@@ -3866,6 +3909,49 @@ export class AgentSession {
 		return this._isDeclarable(name) && this._toolDefinitions.get(name)?.definition.defaultActive !== false;
 	}
 
+	/** Routes the user allowed to run on the host in sandbox mode. No grant surface exists yet, so none are. */
+	private readonly _hostExecGranted: ReadonlySet<HostExecRoute> = new Set();
+
+	private _assertHostExecAllowed(route: HostExecRoute): void {
+		assertHostExecAllowed(route, { sandboxMode: this.sandbox !== undefined, hostExecGranted: this._hostExecGranted });
+	}
+
+	private _buildBuiltinToolDefinitions(o: {
+		autoResizeImages: boolean;
+		editMode: string;
+		shellCommandPrefix: string | undefined;
+		shellPath: string | undefined;
+		jobScope: JobScope | undefined;
+	}) {
+		const ops = this.sandbox?.operations;
+		const editLease = (id: string, target: string, input: unknown) => this._permissions.editLease(id, target, input);
+		const definitions = {
+			...createAllToolDefinitions(this._cwd, {
+				edit: { editLease, operations: ops?.edit },
+				read: { autoResizeImages: o.autoResizeImages, hashline: o.editMode === "hashline", operations: ops?.read },
+				bash: {
+					commandPrefix: o.shellCommandPrefix,
+					shellPath: o.shellPath,
+					jobs: o.jobScope,
+					operations: ops?.bash,
+				},
+				powershell: { jobs: o.jobScope, operations: ops ? SANDBOX_POWERSHELL_REFUSAL : undefined },
+				write: { operations: ops?.write },
+				ls: { operations: ops?.ls },
+			}),
+			...(o.editMode === "hashline"
+				? { edit: createHashlineEditToolDefinition(this._cwd, { editLease, operations: ops?.edit }) }
+				: {}),
+			job: createJobToolDefinition(this._jobScope),
+		};
+		// grep and find spawn rg/fd on the host and would read files the sandbox hides.
+		if (this.sandbox) {
+			delete (definitions as Partial<typeof definitions>).grep;
+			delete (definitions as Partial<typeof definitions>).find;
+		}
+		return definitions;
+	}
+
 	private _buildRuntime(options: {
 		activeToolNames?: string[];
 		flagValues?: Map<string, boolean | string>;
@@ -3884,22 +3970,7 @@ export class AgentSession {
 						createToolDefinitionFromAgentTool(tool),
 					]),
 				)
-			: {
-					...createAllToolDefinitions(this._cwd, {
-						edit: { editLease: (id, target, input) => this._permissions.editLease(id, target, input) },
-						read: { autoResizeImages, hashline: editMode === "hashline" },
-						bash: { commandPrefix: shellCommandPrefix, shellPath, jobs: jobScope },
-						powershell: { jobs: jobScope },
-					}),
-					...(editMode === "hashline"
-						? {
-								edit: createHashlineEditToolDefinition(this._cwd, {
-									editLease: (id, target, input) => this._permissions.editLease(id, target, input),
-								}),
-							}
-						: {}),
-					job: createJobToolDefinition(this._jobScope),
-				};
+			: this._buildBuiltinToolDefinitions({ autoResizeImages, editMode, shellCommandPrefix, shellPath, jobScope });
 
 		this._baseToolDefinitions = new Map(
 			Object.entries(baseToolDefinitions).map(([name, tool]) => [name, tool as ToolDefinition]),
@@ -4129,6 +4200,8 @@ export class AgentSession {
 		onChunk?: (chunk: string) => void,
 		options?: { excludeFromContext?: boolean; id?: string; operations?: BashOperations },
 	): Promise<BashResult> {
+		// Operations from a `user_bash` extension handler run wherever that extension decides, usually the host.
+		if (options?.operations) this._assertHostExecAllowed("user-bash");
 		this._permissions.recordUserCommand(command);
 		const abortController = new AbortController();
 		this._bashAbortControllers.add(abortController);
@@ -4142,7 +4215,7 @@ export class AgentSession {
 			const result = await executeBashWithOperations(
 				resolvedCommand,
 				this.sessionManager.getCwd(),
-				options?.operations ?? createLocalBashOperations({ shellPath }),
+				options?.operations ?? this.sandbox?.operations.bash ?? createLocalBashOperations({ shellPath }),
 				{
 					onChunk: (delta) => {
 						onChunk?.(delta);

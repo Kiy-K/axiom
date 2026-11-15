@@ -53,6 +53,7 @@ import {
 import { stripBom } from "../utils/text.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import { type PiManifest, readPiManifest } from "./pi-manifest.ts";
+import { assertHostExecAllowed } from "./sandbox/host-exec-guard.ts";
 import type { PackageSource, SettingsManager } from "./settings-manager.ts";
 import { BUILTIN_PATH_PREFIX, getResourcePathKey } from "./source-info.ts";
 
@@ -2936,8 +2937,13 @@ export class DefaultPackageManager implements PackageManager {
 		});
 	}
 
+	/** Installs and updates: package lifecycle scripts run host code, so sandbox mode refuses them (read-only queries below stay allowed). */
 	private runCommand(command: string, args: string[], options?: { cwd?: string }): Promise<void> {
 		return new Promise((resolvePromise, reject) => {
+			assertHostExecAllowed("package-install", {
+				sandboxMode: this.settingsManager.getSandboxEnabled(),
+				hostExecGranted: new Set(),
+			});
 			const child = this.spawnCommand(command, args, options);
 			child.on("error", reject);
 			child.on("exit", (code) => {

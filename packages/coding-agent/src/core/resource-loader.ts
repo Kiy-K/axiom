@@ -608,11 +608,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		const extensionPaths = (
 			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions)
-		).filter(
-			(path) =>
-				!path.startsWith(BUILTIN_PATH_PREFIX) ||
-				!this.disabledBuiltinExtensions.has(path.slice(BUILTIN_PATH_PREFIX.length)),
-		);
+		)
+			.filter(
+				(path) =>
+					!path.startsWith(BUILTIN_PATH_PREFIX) ||
+					!this.disabledBuiltinExtensions.has(path.slice(BUILTIN_PATH_PREFIX.length)),
+			)
+			.filter((path) => path.startsWith(BUILTIN_PATH_PREFIX) || this.isAllowedInSandbox(path));
 
 		const packageWarnings = collectExtensionPackageWarnings(extensionPaths, metadataByPath);
 		const extensionsResult = await this.loadFinalExtensionSet(extensionPaths, preTrustExtensions);
@@ -720,7 +722,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		// extension cannot be unloaded.
 		const extensionPaths = (
 			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions)
-		).filter((path) => !path.startsWith(BUILTIN_PATH_PREFIX));
+		)
+			.filter((path) => !path.startsWith(BUILTIN_PATH_PREFIX))
+			.filter((path) => this.isAllowedInSandbox(path));
 		const metadataByPath = new Map(
 			[...resolvedPaths.extensions, ...cliExtensionPaths.extensions].map((resource) => [
 				resource.path,
@@ -745,6 +749,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 		extensionsResult.extensions = omitReplacedExtensions(extensionsResult.extensions, replacementWarnings);
 		mergeExtensionWarnings(extensionsResult, replacementWarnings);
 		return extensionsResult;
+	}
+
+	/** Third-party extension code runs on the host when it loads, so sandbox mode loads only the paths the user listed. */
+	private isAllowedInSandbox(path: string): boolean {
+		if (!this.settingsManager.getSandboxEnabled()) return true;
+		const allowed = this.settingsManager.getSandboxExtensions().map((entry) => this.getExtensionPathKey(entry));
+		return allowed.includes(this.getExtensionPathKey(path));
 	}
 
 	private resolveExtensionLoadPath(path: string): string {

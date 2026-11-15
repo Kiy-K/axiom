@@ -17,6 +17,8 @@ const internalPackageNames = new Set(["@earendil-works/chord"]);
 const installPackageName = "@earendil-works/pi-coding-agent-install";
 const allowedInstallScriptPackages = new Map([
 	["protobufjs@7.6.6", "postinstall only warns about protobufjs version scheme mismatches"],
+	["ssh2@1.17.0", "gondolin dependency; install.js only tries an optional native crypto addon and falls back to JS"],
+	["cpu-features@0.0.10", "optional ssh2 dependency; a failed node-gyp build is tolerated and ssh2 falls back to JS"],
 ]);
 
 const args = new Set(process.argv.slice(2));

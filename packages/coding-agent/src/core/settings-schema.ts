@@ -145,6 +145,21 @@ const WarningSettingsSchema = Type.Object({
 	anthropicExtraUsage: Type.Optional(Type.Boolean({ default: SETTINGS_DEFAULTS.warnings.anthropicExtraUsage })),
 });
 
+const SandboxSettingsSchema = Type.Object({
+	enabled: Type.Optional(
+		Type.Boolean({
+			description:
+				"Run bash and file tools inside a micro-VM that sees only the workspace. Host command execution is refused unless granted. Global setting only.",
+			default: SETTINGS_DEFAULTS.sandbox.enabled,
+		}),
+	),
+	extensions: Type.Optional(
+		Type.Array(Type.String(), {
+			description: "Names of extensions allowed to load while sandbox mode is on. Global setting only.",
+		}),
+	),
+});
+
 function codemodeMode(options?: TSchemaOptions) {
 	return Type.Union([Type.Literal("on"), Type.Literal("only")], options);
 }
@@ -284,6 +299,7 @@ export const SettingsSchema = Type.Object(
 				},
 			),
 		),
+		sandbox: Type.Optional(SandboxSettingsSchema),
 		shellCommandPrefix: Type.Optional(
 			Type.String({ description: "Prefix prepended to every bash command, for example to enable shell aliases." }),
 		),
@@ -496,6 +512,7 @@ export type MermaidRenderingMode = NonNullable<Static<typeof MarkdownSettingsSch
 export interface MarkdownSettings extends Static<typeof MarkdownSettingsSchema> {}
 export interface WarningSettings extends Static<typeof WarningSettingsSchema> {}
 export type CodemodeMode = Static<typeof CodemodeModeSchema>;
+export interface SandboxSettings extends Static<typeof SandboxSettingsSchema> {}
 export interface CodemodeSettings extends Static<typeof CodemodeSettingsSchema> {}
 export type DefaultProjectTrust = NonNullable<SettingsInput["defaultProjectTrust"]>;
 export type PermissionModeSetting = NonNullable<SettingsInput["permissionMode"]>;

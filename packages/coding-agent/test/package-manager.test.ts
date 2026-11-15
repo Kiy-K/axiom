@@ -103,6 +103,15 @@ describe("DefaultPackageManager", () => {
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
+	describe("sandbox mode", () => {
+		it("refuses a package install because lifecycle scripts would run on the host", async () => {
+			settingsManager.setSandboxEnabled(true);
+			await expect(packageManager.install("npm:@scope/pkg")).rejects.toThrow(
+				/"package-install" would run on the host/,
+			);
+		});
+	});
+
 	describe("resolve", () => {
 		it("should return no package-sourced paths when no sources configured", async () => {
 			const result = await packageManager.resolve();

@@ -1060,6 +1060,21 @@ export class SettingsManager {
 		this.save();
 	}
 
+	/** Read from global settings only: a project must not turn the sandbox off or widen its allowlist. */
+	getSandboxEnabled(): boolean {
+		return this.globalSettings.sandbox?.enabled === true;
+	}
+
+	getSandboxExtensions(): string[] {
+		return this.globalSettings.sandbox?.extensions ?? [];
+	}
+
+	setSandboxEnabled(enabled: boolean): void {
+		this.globalSettings.sandbox = { ...this.globalSettings.sandbox, enabled };
+		this.markModified("sandbox");
+		this.save();
+	}
+
 	getShellCommandPrefix(): string | undefined {
 		return this.settings.shellCommandPrefix;
 	}
