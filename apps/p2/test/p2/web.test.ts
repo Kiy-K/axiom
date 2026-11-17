@@ -159,24 +159,22 @@ describe("web host", () => {
 			assert.deepEqual(await browser.evaluate("window.cspViolations"), []);
 			// A page of another origin (another port, same site) framing the app: Chromium refuses to render it.
 			await browser.open(`http://127.0.0.1:${framerPort}/`);
-			// The refusal commits asynchronously, and the iframe can be missing from the tree on a loaded runner: poll.
-			let lastTree = "";
+			// The refusal commits asynchronously: poll. Where the error page is in-process (Chromium without site isolation)
+			// it is a child of the frame tree; in Chrome it is an out-of-process frame, absent from the tree, so ask it.
+			const app = `127.0.0.1:${fixture.server.port}`;
 			await poll(
 				async () => {
 					const tree = (await browser.call("Page.getFrameTree")) as {
 						frameTree: { childFrames?: { frame: { url: string; unreachableUrl?: string } }[] };
 					};
-					lastTree = JSON.stringify(tree.frameTree);
 					const child = tree.frameTree.childFrames?.[0]?.frame;
-					return (
-						child !== undefined && (child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined)
-					);
+					if (child) return child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined;
+					const href = await browser.evaluateInFrame<string>(app, "location.href").catch(() => "");
+					return href.startsWith("chrome-error:");
 				},
 				15_000,
 				"the framed app to be refused",
-			).catch((error: Error) => {
-				throw new Error(`${error.message}; last frame tree: ${lastTree}`);
-			});
+			);
 		} finally {
 			await browser.close();
 			await new Promise<void>((resolve) => framer.close(() => resolve()));
