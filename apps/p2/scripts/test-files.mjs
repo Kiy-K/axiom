@@ -2,19 +2,26 @@
 // Usage: node scripts/test-files.mjs [file...]   (default: test/*/*.test.ts, as `bun run test` globbed before)
 // P2_TEST_FILE_TIMEOUT_MS overrides the per-file limit (default 20 minutes: some tests set 11 to 15 minute timeouts).
 import { spawn } from "node:child_process";
-import { globSync } from "node:fs";
+import { globSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const fileTimeoutMs = Number(process.env.P2_TEST_FILE_TIMEOUT_MS ?? 20 * 60_000);
 const files = process.argv.length > 2 ? process.argv.slice(2) : globSync("test/*/*.test.ts").sort();
 const failures = [];
+const reportDir = mkdtempSync(join(tmpdir(), "p2-test-"));
 
 for (const file of files) {
 	console.log(`\n=== ${file}`);
 	const started = Date.now();
-	const outcome = await runFile(file);
+	const report = join(reportDir, `${file.replaceAll("/", "_")}.tap`);
+	const outcome = await runFile(file, report);
 	const seconds = Math.round((Date.now() - started) / 1000);
 	console.log(`=== ${file}: ${outcome} in ${seconds}s`);
-	if (outcome !== "passed") failures.push(`${file} (${outcome})`);
+	if (outcome !== "passed") {
+		failures.push(`${file} (${outcome})`);
+		printFailures(report);
+	}
 }
 
 if (failures.length > 0) {
@@ -26,11 +33,23 @@ if (failures.length > 0) {
 console.log(`\nAll ${files.length} test files passed.`);
 
 /** Runs one file; a file still running at the limit is killed with everything it spawned (browsers, daemons). */
-function runFile(file) {
+function runFile(file, report) {
 	return new Promise((resolve) => {
 		const child = spawn(
 			process.execPath,
-			["--import", "./src/source.ts", "--test", "--test-concurrency=1", "--test-timeout=120000", file],
+			[
+				"--import",
+				"./src/source.ts",
+				"--test",
+				"--test-concurrency=1",
+				"--test-timeout=120000",
+				// The spec reporter prints failure details only at the end, which a killed file never reaches; TAP is written as tests finish.
+				"--test-reporter=spec",
+				"--test-reporter-destination=stdout",
+				"--test-reporter=tap",
+				`--test-reporter-destination=${report}`,
+				file,
+			],
 			{ stdio: "inherit", detached: true },
 		);
 		let timedOut = false;
@@ -55,5 +74,21 @@ function killGroup(pid, signal) {
 		process.kill(-pid, signal);
 	} catch {
 		// The group is already gone.
+	}
+}
+
+/** Prints the failed tests of a file from its TAP report, with their error details. */
+function printFailures(report) {
+	let lines;
+	try {
+		lines = readFileSync(report, "utf8").split("\n");
+	} catch {
+		return; // The file died before its reporter wrote anything.
+	}
+	let inFailure = false;
+	for (const line of lines) {
+		if (/^\s*not ok /.test(line)) inFailure = true;
+		else if (/^\s*(ok |# |1\.\.)/.test(line)) inFailure = false;
+		if (inFailure) console.log(line);
 	}
 }

@@ -160,11 +160,13 @@ describe("web host", () => {
 			// A page of another origin (another port, same site) framing the app: Chromium refuses to render it.
 			await browser.open(`http://127.0.0.1:${framerPort}/`);
 			// The refusal commits asynchronously, and the iframe can be missing from the tree on a loaded runner: poll.
+			let lastTree = "";
 			await poll(
 				async () => {
 					const tree = (await browser.call("Page.getFrameTree")) as {
 						frameTree: { childFrames?: { frame: { url: string; unreachableUrl?: string } }[] };
 					};
+					lastTree = JSON.stringify(tree.frameTree);
 					const child = tree.frameTree.childFrames?.[0]?.frame;
 					return (
 						child !== undefined && (child.url.startsWith("chrome-error:") || child.unreachableUrl !== undefined)
@@ -172,7 +174,9 @@ describe("web host", () => {
 				},
 				15_000,
 				"the framed app to be refused",
-			);
+			).catch((error: Error) => {
+				throw new Error(`${error.message}; last frame tree: ${lastTree}`);
+			});
 		} finally {
 			await browser.close();
 			await new Promise<void>((resolve) => framer.close(() => resolve()));
