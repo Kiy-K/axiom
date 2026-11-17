@@ -179,10 +179,7 @@ export async function radiusFixture(
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "p2-radius-"));
 	const radius = await fakeRadius(relay);
-	t.after(async () => {
-		await radius.close();
-		await rm(directory, { recursive: true, force: true });
-	});
+	t.after(() => radius.close());
 	await writeRadiusConfig(directory, {
 		gateway: radius.gateway,
 		serverId: randomUUID(),
@@ -225,6 +222,8 @@ export async function radiusFixture(
 		facets: [{ name: "radius-probe", facet: probe }],
 	});
 	t.after(() => server.close());
+	// Hooks run in registration order: remove the directory only after the server, which writes to it, has closed.
+	t.after(() => rm(directory, { recursive: true, force: true }));
 	await radius.hostReady;
 	// The natives the radius and ports plugins contribute once open (their objects live from the load).
 	const natives = await Promise.all([
