@@ -337,6 +337,31 @@ describe("AgentSession permission gateway", () => {
 		expect(harness.session.permissions.audit.tail(5)).toEqual([]);
 	});
 
+	it.each([false, true])(
+		"model bash does not create a host marker with sandbox enabled=%s",
+		async (enabled) => {
+			const harness = await createHarness({ settings: { sandbox: { enabled } } });
+			harnesses.push(harness);
+			const marker = join(harness.tempDir, "model-marker");
+			harness.setResponses(callBash(`touch '${marker}'`));
+			try {
+				await harness.session.prompt("run the command");
+				const result = getToolResult(harness, "bash");
+				if (enabled) {
+					expect((await harness.session.sandbox?.ready)?.kind).toBe("failed");
+					expect(result.isError).toBe(true);
+					expect(existsSync(marker)).toBe(false);
+				} else {
+					expect(result.isError).toBe(false);
+					expect(existsSync(marker)).toBe(true);
+				}
+			} finally {
+				await harness.session.sandbox?.close();
+			}
+		},
+		30_000,
+	);
+
 	it("leaves behavior unchanged in the default mode", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

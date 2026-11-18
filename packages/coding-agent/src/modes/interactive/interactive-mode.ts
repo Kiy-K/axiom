@@ -2219,6 +2219,12 @@ export class InteractiveMode {
 
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
 		const session = this.session;
+		if (session.sandbox) {
+			const redraw = () => {
+				if (this.session === session) this.ui.requestRender();
+			};
+			void session.sandbox.ready.then(redraw, redraw);
+		}
 
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;

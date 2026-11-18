@@ -3718,7 +3718,10 @@ export class AgentSession {
 				},
 				getActiveTools: () => this.getActiveToolNames(),
 				getAllTools: () => this.getAllTools(),
-				getSettings: () => this.settingsManager.getSettings(),
+				getSettings: () => {
+					const settings = this.settingsManager.getSettings();
+					return { ...settings, sandbox: { ...settings.sandbox, enabled: this.sandbox !== undefined } };
+				},
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
 				refreshTools: () => this._refreshToolRegistry(),
 				getCommands,

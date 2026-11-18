@@ -13,6 +13,7 @@ export class SandboxSession {
 	readonly operations: SandboxOperations;
 	/** The guest's project view and write layer; set once the VM start succeeded. Write-back reads it before close. */
 	workspace: Workspace | undefined;
+	private closePromise: Promise<void> | undefined;
 
 	constructor(hostCwd: string) {
 		this.ready = createWorkspace(hostCwd)
@@ -34,26 +35,28 @@ export class SandboxSession {
 	}
 
 	/** Stops the VM, waiting for a start that is still in flight. */
-	async close(): Promise<void> {
-		const state = await this.ready;
-		if (state.kind === "enforced") await state.backend.close();
+	close(): Promise<void> {
+		this.closePromise ??= this.ready.then(async () => {
+			if (this.state.kind !== "enforced") return;
+			const backend = this.state.backend;
+			this.state = { kind: "unavailable", reason: "the sandbox was closed" };
+			await backend.close();
+		});
+		return this.closePromise;
 	}
 
 	/** A backend whose calls wait for the start and then refuse unless isolation was proven. */
 	private deferredBackend(): SandboxBackend {
-		const enforced = async () => requireEnforced(await this.ready);
 		return {
-			exec: async (command, cwd, options) => (await enforced()).exec(command, cwd, options),
-			grantHost: (host) => requireEnforced(this.state).grantHost(host),
-			revokeHost: (host) => requireEnforced(this.state).revokeHost(host),
-			grantedHosts: () => (this.state.kind === "enforced" ? this.state.backend.grantedHosts() : []),
+			exec: (command, cwd, options) =>
+				this.ready.then(() => requireEnforced(this.state).exec(command, cwd, options)),
 			fs: {
-				readFile: async (p) => (await enforced()).fs.readFile(p),
-				writeFile: async (p, content) => (await enforced()).fs.writeFile(p, content),
-				mkdir: async (p) => (await enforced()).fs.mkdir(p),
-				access: async (p) => (await enforced()).fs.access(p),
-				stat: async (p) => (await enforced()).fs.stat(p),
-				listDir: async (p) => (await enforced()).fs.listDir(p),
+				readFile: (p) => this.ready.then(() => requireEnforced(this.state).fs.readFile(p)),
+				writeFile: (p, content) => this.ready.then(() => requireEnforced(this.state).fs.writeFile(p, content)),
+				mkdir: (p) => this.ready.then(() => requireEnforced(this.state).fs.mkdir(p)),
+				access: (p) => this.ready.then(() => requireEnforced(this.state).fs.access(p)),
+				stat: (p) => this.ready.then(() => requireEnforced(this.state).fs.stat(p)),
+				listDir: (p) => this.ready.then(() => requireEnforced(this.state).fs.listDir(p)),
 			},
 			close: () => this.close(),
 		};

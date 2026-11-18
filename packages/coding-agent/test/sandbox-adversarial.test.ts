@@ -1,6 +1,8 @@
 // Adversarial checks against a real VM: a hostile guest must not reach the host except through reviewed write-back.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +17,8 @@ describe.skipIf(!detectSandboxSupport().ok)("sandbox adversarial guest", { timeo
 	let saved: string;
 	let outside: string;
 	let session: SandboxSession;
+	const environmentKey = `AXIOM_HOST_SENTINEL_${randomUUID().replaceAll("-", "_")}`;
+	const environmentValue = `host-secret-${randomUUID()}`;
 
 	const sh = async (command: string) => {
 		let text = "";
@@ -38,13 +42,52 @@ describe.skipIf(!detectSandboxSupport().ok)("sandbox adversarial guest", { timeo
 		writeFileSync(hostFile(".env"), "TOKEN=secret");
 		writeFileSync(join(outside, "private"), "outside secret");
 		execFileSync("git", ["add", "-A"], { cwd });
-		session = new SandboxSession(cwd);
-		await session.ready;
+		const previous = process.env[environmentKey];
+		process.env[environmentKey] = environmentValue;
+		try {
+			session = new SandboxSession(cwd);
+			await session.ready;
+		} finally {
+			if (previous === undefined) delete process.env[environmentKey];
+			else process.env[environmentKey] = previous;
+		}
 	});
 
 	afterAll(async () => {
 		await session.close();
 		for (const dir of [cwd, saved, outside]) rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("does not expose host environment to guest processes", async () => {
+		for (const command of ["env", "cat /proc/1/environ"]) {
+			const result = await sh(command);
+			expect(result.exitCode).toBe(0);
+			expect(result.text).not.toContain(environmentKey);
+			expect(result.text).not.toContain(environmentValue);
+		}
+	});
+
+	it("isolates guest process listings from host processes", async () => {
+		const marker = `axiom-host-process-${randomUUID()}`;
+		const child = spawn(process.execPath, ["-e", "process.stdin.resume()", marker], {
+			stdio: ["pipe", "ignore", "ignore"],
+		});
+		const exited = once(child, "exit");
+		try {
+			await once(child, "spawn");
+			expect(readFileSync(`/proc/${child.pid}/cmdline`, "utf8")).toContain(marker);
+			const init = await sh("cat /proc/1/comm");
+			expect(init.exitCode).toBe(0);
+			expect(init.text.trim()).toBe("sandboxd");
+			for (const command of ["ps", 'for f in /proc/[0-9]*/cmdline; do cat "$f" 2>/dev/null || :; done']) {
+				const result = await sh(command);
+				expect(result.exitCode).toBe(0);
+				expect(result.text).not.toContain(marker);
+			}
+		} finally {
+			child.kill("SIGKILL");
+			await exited;
+		}
 	});
 
 	it("cannot read a secret directly or through a symlink", async () => {

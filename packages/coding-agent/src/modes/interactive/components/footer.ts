@@ -224,6 +224,11 @@ export class FooterComponent implements Component {
 		if (this.session.permissions.editTrustActive) {
 			statsParts.push(`${theme.fg("dim", "•")} ${theme.fg("warning", "edits trusted")}`);
 		}
+		const sandboxState = this.session.sandbox?.state.kind;
+		const sandboxLabel = sandboxState && (sandboxState === "enforced" ? "sandboxed" : `sandbox ${sandboxState}`);
+		if (sandboxLabel) {
+			statsParts.unshift(theme.fg("warning", sandboxLabel));
+		}
 
 		let statsLeft = statsParts.join(" ");
 
@@ -234,7 +239,8 @@ export class FooterComponent implements Component {
 
 		// If statsLeft is too wide, truncate it
 		if (statsLeftWidth > width) {
-			statsLeft = truncateToWidth(statsLeft, width, "...");
+			const ellipsis = sandboxLabel && width < visibleWidth(sandboxLabel) + 3 ? "" : "...";
+			statsLeft = truncateToWidth(statsLeft, width, ellipsis);
 			statsLeftWidth = visibleWidth(statsLeft);
 		}
 

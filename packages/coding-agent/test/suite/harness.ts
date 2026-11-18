@@ -112,6 +112,7 @@ export interface HarnessOptions {
 	provider?: string;
 	models?: FauxModelDefinition[];
 	settings?: Partial<Settings>;
+	settingsManager?: SettingsManager;
 	tools?: AgentTool[];
 	initialActiveToolNames?: string[];
 	allowedToolNames?: string[];
@@ -161,7 +162,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
 	const sessionManager = options.sessionManager ?? SessionManager.inMemory();
-	const settingsManager = SettingsManager.inMemory(options.settings);
+	const settingsManager = options.settingsManager ?? SettingsManager.inMemory(options.settings);
 
 	const authStorage = AuthStorage.inMemory();
 	if (withConfiguredAuth) {

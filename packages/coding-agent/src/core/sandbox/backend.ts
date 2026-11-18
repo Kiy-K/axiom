@@ -27,10 +27,6 @@ export interface SandboxFs {
 export interface SandboxBackend {
 	/** Run `command` in `cwd` (a guest path) and stream output. Null exit code means the process was killed. */
 	exec(command: string, cwd: string, options: SandboxExecOptions): Promise<{ exitCode: number | null }>;
-	/** Allow guest HTTP(S) to `host` until revoked. Takes effect on the running VM. */
-	grantHost(host: string): void;
-	revokeHost(host: string): void;
-	grantedHosts(): string[];
 	readonly fs: SandboxFs;
 	close(): Promise<void>;
 }

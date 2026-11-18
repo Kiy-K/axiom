@@ -582,7 +582,13 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 									signal: AbortSignal.any([session.signal, shutdown]),
 									onBehalfOf: server.entry.source,
 								})
-						: undefined,
+						: pi.getSettings().sandbox?.enabled === true
+							? async () => {
+									throw new Error(
+										`Blocked: MCP server "${server.entry.name}" would start a process on the host, but sandbox mode is on.`,
+									);
+								}
+							: undefined,
 				onTools: (connection) => {
 					if (isCurrent()) registerTools(connection);
 				},

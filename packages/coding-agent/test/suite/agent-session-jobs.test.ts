@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHarness, getMessageText, type Harness } from "./harness.ts";
+import { createHarness, getMessageText, getToolResult, type Harness } from "./harness.ts";
 
 /** Real processes take real time; poll the session until the condition holds or the deadline passes. */
 async function until(predicate: () => boolean, ms: number): Promise<boolean> {
@@ -68,6 +70,40 @@ describe("AgentSession background jobs", () => {
 		expect(Date.now() - started).toBeLessThan(5_000);
 		expect(harness.session.listJobs()[0]?.state).toBe("stopped");
 	}, 20_000);
+
+	it.each([false, true])(
+		"only launches a host background job in a non-git workspace when sandbox enabled=%s",
+		async (enabled) => {
+			const harness = await createHarness({ settings: { sandbox: { enabled } } });
+			harnesses.push(harness);
+			const marker = join(harness.tempDir, "background-marker");
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("bash", { command: `touch '${marker}'`, background: true })], {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage("done"),
+			]);
+			try {
+				await harness.session.prompt("start the job");
+				if (enabled) {
+					expect((await harness.session.sandbox?.ready)?.kind).toBe("failed");
+					expect(getToolResult(harness, "bash").isError).toBe(true);
+					expect(getMessageText(getToolResult(harness, "bash"))).toContain(
+						"Background jobs require an execution backend with retained process handles.",
+					);
+					expect(harness.session.listJobs()).toHaveLength(0);
+					expect(existsSync(marker)).toBe(false);
+				} else {
+					expect(await until(() => existsSync(marker), 5_000)).toBe(true);
+					expect(harness.session.listJobs()).toHaveLength(1);
+				}
+			} finally {
+				await harness.session.stopJobs();
+				await harness.session.sandbox?.close();
+			}
+		},
+		30_000,
+	);
 
 	it("activates the job tool only while a shell tool is active", async () => {
 		const harness = await createHarness();

@@ -1,9 +1,9 @@
-// Gondolin-backed SandboxBackend: boots a VM with no host env, live-revocable network grants, and a start probe.
+// Gondolin-backed SandboxBackend: boots a VM with no host env and no network, proven by a start probe.
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Writable } from "node:stream";
-import { createHttpHooks, type ExecProcess, type VirtualProvider, VM } from "@earendil-works/gondolin";
+import { type ExecProcess, type VirtualProvider, VM } from "@earendil-works/gondolin";
 import type { SandboxBackend, SandboxExecOptions, SandboxFs, SandboxState } from "./backend.ts";
 import { detectSandboxSupport } from "./detect.ts";
 
@@ -31,17 +31,10 @@ export async function startGondolinBackend(options: GondolinBackendOptions = {})
 	const support = detectSandboxSupport();
 	if (!support.ok) return { kind: "unavailable", reason: support.reason };
 
-	const grants = new Set<string>();
-	const { httpHooks } = createHttpHooks({
-		allowedHosts: ["*"],
-		isRequestAllowed: (request) => grants.has(new URL(request.url).hostname.toLowerCase()),
-	});
 	let vm: VM;
 	try {
 		vm = await VM.create({
-			httpHooks,
-			dns: { mode: "synthetic" },
-			allowWebSockets: false,
+			sandbox: { netEnabled: false },
 			env: GUEST_ENV,
 			startTimeoutMs: (options.startTimeoutSeconds ?? 120) * 1000,
 			...(options.mounts ? { vfs: { mounts: options.mounts } } : {}),
@@ -50,18 +43,24 @@ export async function startGondolinBackend(options: GondolinBackendOptions = {})
 		return { kind: "failed", reason: `VM did not start: ${message(error)}` };
 	}
 
-	const problem = await probe(vm, options);
+	let problem: string | undefined;
+	try {
+		problem = await probe(vm, options);
+	} catch (error) {
+		await vm.close().catch(() => {});
+		return { kind: "failed", reason: `isolation probe failed: ${message(error)}` };
+	}
 	if (problem) {
 		await vm.close().catch(() => {});
 		return { kind: "failed", reason: `isolation probe failed: ${problem}` };
 	}
-	return { kind: "enforced", backend: new GondolinBackend(vm, grants) };
+	return { kind: "enforced", backend: new GondolinBackend(vm) };
 }
 
 /** Returns a description of the first failed check, or undefined when the guest is isolated as designed. */
 async function probe(vm: VM, options: GondolinBackendOptions): Promise<string | undefined> {
 	const sh = async (script: string) => {
-		const result = await vm.exec(["/bin/sh", "-c", script]);
+		const result = await vm.exec(["/bin/sh", "-c", script], { signal: AbortSignal.timeout(10_000) });
 		return { code: result.exitCode, out: result.stdout };
 	};
 	const hostHome = options.hostHome ?? process.env.HOME;
@@ -82,11 +81,10 @@ async function probe(vm: VM, options: GondolinBackendOptions): Promise<string | 
 		const problem = await probeWorkspace(sh, options.workspace);
 		if (problem) return problem;
 	}
-	// An ungranted host must be refused by the proxy; 403 is its answer. Anything else means the policy is not applied.
 	const net = await sh(
-		`node -e 'fetch("http://example.com").then(r=>process.exit(r.status===403?0:1),()=>process.exit(0))'`,
+		`timeout 10 node -e 'const os = require("node:os"); process.exit(Object.values(os.networkInterfaces()).flat().some(i => i && !i.internal && (i.family === "IPv4" || i.family === "IPv6")) ? 1 : 0)'`,
 	);
-	if (net.code !== 0) return "an ungranted host was reachable from the guest";
+	if (net.code !== 0) return "network interface check failed or found a non-internal interface";
 	return undefined;
 }
 
@@ -109,13 +107,11 @@ async function probeWorkspace(
 
 class GondolinBackend implements SandboxBackend {
 	readonly #vm: VM;
-	readonly #grants: Set<string>;
 	#counter = 0;
 	readonly fs: SandboxFs;
 
-	constructor(vm: VM, grants: Set<string>) {
+	constructor(vm: VM) {
 		this.#vm = vm;
-		this.#grants = grants;
 		this.fs = {
 			readFile: (p) => vm.fs.readFile(p),
 			writeFile: (p, content) => vm.fs.writeFile(p, content, { encoding: "utf8" }),
@@ -126,18 +122,6 @@ class GondolinBackend implements SandboxBackend {
 			stat: (p) => vm.fs.stat(p),
 			listDir: (p) => vm.fs.listDir(p),
 		};
-	}
-
-	grantHost(host: string): void {
-		this.#grants.add(host.toLowerCase());
-	}
-
-	revokeHost(host: string): void {
-		this.#grants.delete(host.toLowerCase());
-	}
-
-	grantedHosts(): string[] {
-		return [...this.#grants];
 	}
 
 	async close(): Promise<void> {

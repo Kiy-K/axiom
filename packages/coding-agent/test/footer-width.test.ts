@@ -26,6 +26,7 @@ function createSession(options: {
 	toolUsage?: AssistantUsage;
 	usingSubscription?: boolean;
 	editTrustActive?: boolean;
+	sandboxState?: "starting" | "enforced" | "failed" | "unavailable";
 	routedModel?: { model: { id: string }; thinkingLevel?: string };
 }): AgentSession {
 	const usage = options.usage;
@@ -85,6 +86,7 @@ function createSession(options: {
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
 		permissions: { editTrustActive: options.editTrustActive ?? false },
+		sandbox: options.sandboxState ? { state: { kind: options.sandboxState } } : undefined,
 		routedModel: options.routedModel,
 		modelRuntime: {
 			isUsingSubscription: () => options.usingSubscription ?? false,
@@ -133,6 +135,44 @@ describe("FooterComponent width handling", () => {
 		const plain = new FooterComponent(createSession({ sessionName: "" }), createFooterData(1));
 		expect(stripAnsi(trusted.render(100).join("\n"))).toContain("edits trusted");
 		expect(stripAnsi(plain.render(100).join("\n"))).not.toContain("edits trusted");
+	});
+
+	it.each([
+		["starting", "sandbox starting"],
+		["enforced", "sandboxed"],
+		["failed", "sandbox failed"],
+		["unavailable", "sandbox unavailable"],
+	] as const)("shows %s sandbox state", (sandboxState, label) => {
+		const footer = new FooterComponent(createSession({ sessionName: "", sandboxState }), createFooterData(1));
+		const rendered = stripAnsi(footer.render(160).join("\n"));
+		expect(rendered).toContain(label);
+		if (sandboxState !== "enforced") expect(rendered).not.toContain("sandboxed");
+	});
+
+	it.each([
+		["starting", "sandbox starting"],
+		["enforced", "sandboxed"],
+		["failed", "sandbox failed"],
+		["unavailable", "sandbox unavailable"],
+	] as const)("prioritizes %s sandbox state at narrow widths", (sandboxState, label) => {
+		const footer = new FooterComponent(
+			createSession({
+				sessionName: "",
+				sandboxState,
+				usage: { input: 12345, output: 6789, cacheRead: 1000, cacheWrite: 1000, cost: { total: 1.234 } },
+			}),
+			createFooterData(1),
+		);
+		for (const width of [label.length, 24, 40]) {
+			const lines = footer.render(width);
+			expect(stripAnsi(lines[1])).toContain(label);
+			for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+	});
+
+	it("does not show a sandbox marker when sandbox is off", () => {
+		const footer = new FooterComponent(createSession({ sessionName: "" }), createFooterData(1));
+		expect(stripAnsi(footer.render(160).join("\n"))).not.toContain("sandbox");
 	});
 
 	it("keeps all lines within width for wide session names", () => {

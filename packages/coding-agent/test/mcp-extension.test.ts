@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -962,6 +962,24 @@ describe("MCP servers behind the permission gateway", () => {
 		await expect(connection.approveClientSecret()).rejects.toThrow("user denied");
 		expect(() => connection.oauthSettings()).toThrow("was not approved");
 		await connection.close();
+	});
+
+	it("does not execute a denied OAuth secret command on connect or sign-in", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "mcp-secret-"));
+		const marker = join(dir, "secret-ran");
+		const { connection, createTransport } = gated(oauthEntry(`!touch '${marker}'`), async () => {
+			throw new Error("blocked");
+		});
+		try {
+			await expect(connection.getClient()).rejects.toThrow("blocked");
+			await expect(connection.approveClientSecret()).rejects.toThrow("blocked");
+			await expect(connection.reconnect()).rejects.toThrow("blocked");
+			expect(createTransport).not.toHaveBeenCalled();
+			expect(existsSync(marker)).toBe(false);
+		} finally {
+			await connection.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("resolves a client secret directly for an ungated server, as before", async () => {

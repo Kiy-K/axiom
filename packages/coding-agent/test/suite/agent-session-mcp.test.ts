@@ -1,4 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { once } from "node:events";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -11,9 +14,11 @@ import { ENV_AGENT_DIR } from "../../src/config.ts";
 import type { ExtensionAPI, ExtensionFactory } from "../../src/core/extensions/types.ts";
 import type { McpServerConfig } from "../../src/core/mcp-servers.ts";
 import type { SessionManager } from "../../src/core/session-manager.ts";
+import { InMemorySettingsStorage, SettingsManager } from "../../src/core/settings-manager.ts";
 import { createCodemodeExtension } from "../../src/extensions/codemode/index.ts";
 import type { McpExposure, McpServerEntry } from "../../src/extensions/mcp/config.ts";
 import { createMcpExtension, MCP_SERVERS_SECTION } from "../../src/extensions/mcp/index.ts";
+import { createDefaultTransport } from "../../src/extensions/mcp/runtime.ts";
 import { createToolSearchExtension } from "../../src/extensions/tool-search/index.ts";
 import { TOOL_SEARCH_DESCRIPTION } from "../../src/extensions/tool-search/tool.ts";
 import { createTestExtensionsResult, createTestResourceLoader } from "../utilities.ts";
@@ -1299,13 +1304,23 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 		registered?: Record<string, McpServerConfig>;
 		configured?: McpServerEntry[];
 		answer?: () => string | undefined;
+		sandbox?: boolean;
+		changeSettings?: (harness: Harness) => void;
+		projectSandbox?: boolean;
+		realTransport?: boolean;
 	}) {
 		const spawned: string[] = [];
 		const transported: McpServerEntry[] = [];
 		const prompts: string[] = [];
+		const notifications: string[] = [];
+		const storage = new InMemorySettingsStorage();
+		storage.withLock("global", () =>
+			JSON.stringify({ permissionMode: options.permissionMode, sandbox: { enabled: options.sandbox } }),
+		);
+		storage.withLock("project", () => JSON.stringify({ sandbox: { enabled: options.projectSandbox } }));
 		const harness = await createHarness({
 			initialActiveToolNames: [],
-			...(options.permissionMode ? { settings: { permissionMode: options.permissionMode } } : {}),
+			settingsManager: SettingsManager.fromStorage(storage, { projectTrusted: true }),
 			extensionFactories: [
 				(pi) => {
 					for (const [name, config] of Object.entries(options.registered ?? {}))
@@ -1314,9 +1329,10 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 				createCodemodeExtension(),
 				createMcpExtension({
 					loadConfig: () => ({ servers: options.configured ?? [], errors: [] }),
-					createTransport: (entry) => {
+					createTransport: (entry, cwd, authProvider) => {
 						spawned.push(entry.name);
 						transported.push(entry);
+						if (options.realTransport) return createDefaultTransport(entry, cwd, authProvider);
 						const pair = createFakeServer([]);
 						void pair.server.start();
 						return pair.client;
@@ -1325,15 +1341,17 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 			],
 		});
 		harnesses.push(harness);
+		options.changeSettings?.(harness);
 		await harness.session.bindExtensions({
 			uiContext: createTestUiContext({
+				notify: (message) => notifications.push(message),
 				select: async (title) => {
 					prompts.push(title);
 					return options.answer?.();
 				},
 			}),
 		});
-		return { harness, spawned, prompts, transported };
+		return { harness, spawned, prompts, transported, notifications };
 	}
 
 	const stdio = (command: string, extra: Partial<McpServerConfig> = {}): McpServerConfig =>
@@ -1424,6 +1442,164 @@ describe("AgentSession MCP stdio servers and the permission gateway", () => {
 		});
 		await vi.waitFor(() => expect([...spawned].sort()).toEqual(["mine", "proj", "web"]));
 		expect(prompts).toEqual([]);
+	});
+
+	it("blocks configured host processes in a sandbox, including reconnect and OAuth sign-in", async () => {
+		const marker = join(agentDir, "mcp-command-ran");
+		const command = `!touch '${marker}'`;
+		const configured: McpServerEntry[] = [
+			{ name: "global", scope: "global", source: "mcp.json", config: stdio("node") },
+			{ name: "project", scope: "project", source: "mcp.json", config: stdio("node", { env: { TOKEN: command } }) },
+			{
+				name: "header",
+				scope: "global",
+				source: "mcp.json",
+				config: { url: "http://web.invalid", headers: { TOKEN: command } },
+			},
+			{
+				name: "oauth",
+				scope: "project",
+				source: "mcp.json",
+				config: { url: "http://web.invalid", oauth: { clientSecret: command } },
+			},
+			{ name: "plain", scope: "global", source: "mcp.json", config: { url: "http://web.invalid" } },
+		];
+		const { harness, spawned, notifications } = await setup({
+			sandbox: true,
+			projectSandbox: false,
+			configured,
+			changeSettings: ({ settingsManager }) => {
+				settingsManager.setSandboxEnabled(false);
+				settingsManager.applyOverrides({ sandbox: { enabled: false } });
+			},
+		});
+		await vi.waitFor(() => expect(spawned).toContain("plain"));
+		for (const name of ["global", "project", "header", "oauth"]) {
+			await harness.session.prompt(`/mcp reconnect ${name}`);
+			expect(notifications.join("\n")).toContain(
+				`Blocked: MCP server "${name}" would start a process on the host, but sandbox mode is on.`,
+			);
+		}
+		notifications.length = 0;
+		await harness.session.prompt("/mcp login oauth");
+		expect(notifications.join("\n")).toContain(
+			'Blocked: MCP server "oauth" would start a process on the host, but sandbox mode is on.',
+		);
+		expect(spawned).toEqual(["plain"]);
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	it("keeps configured servers ungated when the session started without a sandbox", async () => {
+		const configured: McpServerEntry[] = [
+			{ name: "global", scope: "global", source: "mcp.json", config: stdio("node") },
+			{ name: "project", scope: "project", source: "mcp.json", config: stdio("node") },
+		];
+		const { spawned, prompts } = await setup({
+			configured,
+			changeSettings: ({ settingsManager }) => settingsManager.setSandboxEnabled(true),
+		});
+		await vi.waitFor(() => expect([...spawned].sort()).toEqual(["global", "project"]));
+		expect(prompts).toEqual([]);
+	});
+
+	it.each([true, false])("enforces real stdio env and HTTP header commands with sandbox=%s", async (sandbox) => {
+		const headers: string[] = [];
+		const server = createServer((request, response) => {
+			headers.push(String(request.headers["x-token"]));
+			response.writeHead(400).end();
+		});
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+		const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
+		const envMarker = join(agentDir, "env-ran");
+		const childMarker = join(agentDir, "child-ran");
+		const headerMarker = join(agentDir, "header-ran");
+		const configured: McpServerEntry[] = [
+			{
+				name: "stdio",
+				scope: "project",
+				source: "mcp.json",
+				config: {
+					command: process.execPath,
+					args: ["-e", `require('fs').writeFileSync(${JSON.stringify(childMarker)}, 'started')`],
+					env: { TOKEN: `!touch '${envMarker}'; printf token` },
+				},
+			},
+			{
+				name: "header",
+				scope: "global",
+				source: "mcp.json",
+				config: { url, headers: { "X-Token": `!touch '${headerMarker}'; printf token` } },
+			},
+		];
+		try {
+			const { harness, notifications } = await setup({ sandbox, configured, realTransport: true });
+			if (sandbox) {
+				await harness.session.prompt("/mcp reconnect stdio");
+				await harness.session.prompt("/mcp reconnect header");
+				expect(notifications.join("\n")).toContain('Blocked: MCP server "stdio"');
+				expect(notifications.join("\n")).toContain('Blocked: MCP server "header"');
+				expect(existsSync(envMarker)).toBe(false);
+				expect(existsSync(childMarker)).toBe(false);
+				expect(existsSync(headerMarker)).toBe(false);
+				expect(headers).toEqual([]);
+			} else {
+				await vi.waitFor(() => {
+					expect(existsSync(envMarker)).toBe(true);
+					expect(existsSync(childMarker)).toBe(true);
+					expect(existsSync(headerMarker)).toBe(true);
+					expect(headers).toContain("token");
+				});
+				rmSync(envMarker);
+				rmSync(childMarker);
+				rmSync(headerMarker);
+				await harness.session.prompt("/mcp reconnect stdio");
+				await harness.session.prompt("/mcp reconnect header");
+				await vi.waitFor(() => {
+					expect(existsSync(envMarker)).toBe(true);
+					expect(existsSync(childMarker)).toBe(true);
+					expect(existsSync(headerMarker)).toBe(true);
+				});
+			}
+		} finally {
+			server.closeAllConnections();
+			server.close();
+			await once(server, "close");
+		}
+	});
+
+	it.each([true, false])("enforces OAuth secret commands on sign-in with sandbox=%s", async (sandbox) => {
+		const server = createServer((_request, response) => response.writeHead(400).end());
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+		const marker = join(agentDir, "oauth-secret-ran");
+		const configured: McpServerEntry[] = [
+			{
+				name: "oauth",
+				scope: "global",
+				source: "mcp.json",
+				config: {
+					url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`,
+					oauth: { clientId: "client", clientSecret: `!touch '${marker}'; printf secret` },
+				},
+			},
+		];
+		try {
+			const { harness, notifications } = await setup({ sandbox, configured, realTransport: true });
+			await harness.session.prompt("/mcp login oauth");
+			if (sandbox) {
+				expect(notifications.join("\n")).toContain('Blocked: MCP server "oauth"');
+				expect(existsSync(marker)).toBe(false);
+				await harness.session.prompt("/mcp reconnect oauth");
+				expect(existsSync(marker)).toBe(false);
+			} else {
+				expect(existsSync(marker)).toBe(true);
+			}
+		} finally {
+			server.closeAllConnections();
+			server.close();
+			await once(server, "close");
+		}
 	});
 
 	it("is a no-op in yolo mode: no prompt, no audit entry", async () => {

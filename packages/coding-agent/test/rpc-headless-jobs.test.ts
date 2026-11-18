@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { detectSandboxSupport } from "../src/core/sandbox/detect.ts";
 import { RpcClient } from "../src/modes/rpc/rpc-client.ts";
 
 interface IsolatedBox {
@@ -32,7 +33,7 @@ export default function (pi) {
 	const faux = fauxProvider();
 	faux.setResponses([
 		() =>
-			fauxAssistantMessage([fauxToolCall("bash", { command, background: true })], {
+			fauxAssistantMessage([fauxToolCall("bash", { command, background: process.env.JOB_FOREGROUND !== "1" })], {
 				stopReason: "toolUse",
 			}),
 		async () => {
@@ -109,6 +110,167 @@ describe("RPC and headless background jobs", () => {
 	afterEach(() => {
 		while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
 	});
+
+	for (const enabled of [false, true]) {
+		it.skipIf(enabled && !detectSandboxSupport().ok)(
+			`routes RPC bash away from the host when sandbox enabled=${enabled}`,
+			async () => {
+				const box = isolated();
+				execFileSync("git", ["init", "-q"], { cwd: box.cwd });
+				writeFileSync(
+					join(box.agentDir, "settings.json"),
+					JSON.stringify({ sandbox: { enabled, extensions: [box.extPath] } }),
+				);
+				const client = new RpcClient({ cliPath, cwd: box.cwd, env: box.env, args: box.args });
+				try {
+					await client.start();
+					const result = await client.bash("touch rpc-marker; echo rpc-command-ran");
+					expect(result.exitCode).toBe(0);
+					expect(result.output).toContain("rpc-command-ran");
+					expect(existsSync(join(box.cwd, "rpc-marker"))).toBe(!enabled);
+				} finally {
+					await client.stop();
+				}
+			},
+			180_000,
+		);
+
+		it.skipIf(enabled && !detectSandboxSupport().ok)(
+			`routes model bash away from the host when sandbox enabled=${enabled}`,
+			async () => {
+				const box = isolated({ JOB_COMMAND: "touch model-marker; echo model-command-ran", JOB_FOREGROUND: "1" });
+				execFileSync("git", ["init", "-q"], { cwd: box.cwd });
+				writeFileSync(
+					join(box.agentDir, "settings.json"),
+					JSON.stringify({ sandbox: { enabled, extensions: [box.extPath] } }),
+				);
+				const client = new RpcClient({ cliPath, cwd: box.cwd, env: box.env, args: box.args });
+				try {
+					await client.start();
+					await client.promptAndWait("run the command");
+					const probe = await client.bash("test -f model-marker && echo marker-present");
+					expect(probe.exitCode).toBe(0);
+					expect(probe.output).toContain("marker-present");
+					expect(existsSync(join(box.cwd, "model-marker"))).toBe(!enabled);
+				} finally {
+					await client.stop();
+				}
+			},
+			180_000,
+		);
+
+		it.skipIf(enabled && !detectSandboxSupport().ok)(
+			`permits model background host launch with sandbox enabled=${enabled}`,
+			async () => {
+				const box = isolated({ JOB_COMMAND: "touch job-marker" });
+				execFileSync("git", ["init", "-q"], { cwd: box.cwd });
+				writeFileSync(
+					join(box.agentDir, "settings.json"),
+					JSON.stringify({ sandbox: { enabled, extensions: [box.extPath] } }),
+				);
+				const client = new RpcClient({ cliPath, cwd: box.cwd, env: box.env, args: box.args });
+				const events: unknown[] = [];
+				client.onEvent((event) => events.push(event));
+				try {
+					await client.start();
+					const probe = await client.bash("echo ready");
+					expect(probe.exitCode).toBe(0);
+					await client.promptAndWait("start a background job");
+					if (enabled) {
+						expect(events).toContainEqual(
+							expect.objectContaining({ type: "tool_execution_end", toolName: "bash", isError: true }),
+						);
+						expect(JSON.stringify(events)).toContain(
+							"Background jobs require an execution backend with retained process handles.",
+						);
+						const guestCheck = await client.bash("test ! -e job-marker");
+						expect(guestCheck.exitCode).toBe(0);
+						expect(JSON.stringify(events)).not.toContain("Started background job");
+						expect(existsSync(join(box.cwd, "job-marker"))).toBe(false);
+					} else {
+						expect(JSON.stringify(events)).toContain("Started background job");
+						expect(await until(() => existsSync(join(box.cwd, "job-marker")), 5_000)).toBe(true);
+					}
+				} finally {
+					await client.stop();
+				}
+			},
+			180_000,
+		);
+	}
+
+	it.skipIf(process.platform !== "linux" || !detectSandboxSupport().ok)(
+		"reaps the VM process when the RPC session closes",
+		async () => {
+			const box = isolated();
+			execFileSync("git", ["init", "-q"], { cwd: box.cwd });
+			writeFileSync(
+				join(box.agentDir, "settings.json"),
+				JSON.stringify({
+					sandbox: { enabled: true, extensions: [box.extPath] },
+				}),
+			);
+			const client = new RpcClient({ cliPath, cwd: box.cwd, env: box.env, args: box.args });
+			let vmPid: number | undefined;
+			let vmStartTime: string | undefined;
+			const sameVm = () => {
+				if (vmPid === undefined || vmStartTime === undefined) return false;
+				try {
+					const stat = readFileSync(`/proc/${vmPid}/stat`, "utf8");
+					return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] === vmStartTime;
+				} catch {
+					return false;
+				}
+			};
+			const errors: unknown[] = [];
+			try {
+				await client.start();
+				expect((await client.bash("echo ready")).exitCode).toBe(0);
+				// RpcClient owns this private child; inspect it only to identify its VM.
+				const agentPid = (Reflect.get(client, "process") as ChildProcess | undefined)?.pid;
+				expect(agentPid).toBeDefined();
+				const children = readFileSync(`/proc/${agentPid}/task/${agentPid}/children`, "utf8")
+					.trim()
+					.split(/\s+/)
+					.filter(Boolean)
+					.map(Number);
+				vmPid = children.find((pid) => {
+					try {
+						return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0")[0].includes("qemu-system");
+					} catch {
+						return false;
+					}
+				});
+				expect(vmPid).toBeDefined();
+				const stat = readFileSync(`/proc/${vmPid}/stat`, "utf8");
+				vmStartTime = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+				expect(vmStartTime).toBeDefined();
+				expect(sameVm()).toBe(true);
+				await client.stop();
+				expect(await until(() => !sameVm(), 10_000)).toBe(true);
+			} catch (error) {
+				errors.push(error);
+			} finally {
+				try {
+					await client.stop();
+				} catch (error) {
+					errors.push(error);
+				}
+				if (vmPid !== undefined && sameVm()) {
+					try {
+						process.kill(vmPid, "SIGKILL");
+						if (!(await until(() => !sameVm(), 10_000))) {
+							errors.push(new Error(`VM process ${vmPid} survived cleanup`));
+						}
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== "ESRCH") errors.push(error);
+					}
+				}
+			}
+			if (errors.length) throw new AggregateError(errors, "VM teardown test or cleanup failed");
+		},
+		180_000,
+	);
 
 	it("delivers the yield and the next-prompt notice over RPC", async () => {
 		const box = isolated({ JOB_COMMAND: "echo finished" });
