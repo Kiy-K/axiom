@@ -1,12 +1,6 @@
 {
   "version": 2,
   "skills": {
-    "arktype": {
-      "source": "arktypeio/arktype",
-      "sourceType": "github",
-      "skillPath": "ark/type/skills/arktype/SKILL.md",
-      "computedHash": ""
-    },
     "ask-matt": {
       "source": "mattpocock/skills",
       "commit": "5863806dd4e15c63174bee4e7515a4256792ecfa",
