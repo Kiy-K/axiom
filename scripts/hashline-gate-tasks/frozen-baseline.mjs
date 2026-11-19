@@ -7,6 +7,7 @@ export const tasks = p0Tasks
 	.filter((task) => task.kind === "bugfix")
 	.map((task) => ({
 		id: `p0-${task.id}`,
+		kind: task.kind,
 		category: "p0-bugfix",
 		prompt: task.prompt,
 		files: task.files,

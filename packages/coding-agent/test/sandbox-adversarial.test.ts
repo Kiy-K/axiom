@@ -154,3 +154,70 @@ describe.skipIf(!detectSandboxSupport().ok)("host edit racing write-back", { tim
 		}
 	});
 });
+
+// Own session: `kill -9 -1` inside the guest can take out the exec helpers that serve
+// /workspace, so it must not share a VM with the checks that need a healthy guest.
+describe.skipIf(!detectSandboxSupport().ok)("guest cannot see or signal host processes", { timeout: 180_000 }, () => {
+	it("keeps host processes invisible and unsignalable", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "adv-pid-"));
+		execFileSync("git", ["init", "-q"], { cwd });
+		writeFileSync(join(cwd, "a.txt"), "a");
+		execFileSync("git", ["add", "-A"], { cwd });
+		const session = new SandboxSession(cwd);
+		// Timeout keeps a wedged guest exec (killed helper) failing here instead of hanging the suite.
+		const sh = async (command: string) => {
+			let text = "";
+			try {
+				const { exitCode } = await session.operations.bash.exec(command, cwd, {
+					onData: (data) => {
+						text += data.toString();
+					},
+					timeout: 30,
+				});
+				return { exitCode, text };
+			} catch (error) {
+				return { exitCode: -1, text: `${String(error)}${text}` };
+			}
+		};
+		const marker = `axiom-host-pid-${randomUUID()}`;
+		const child = spawn(process.execPath, ["-e", "process.stdin.resume()", marker], {
+			// The sentinel rides in the environment: `cat /proc/<pid>/environ` means something.
+			stdio: ["pipe", "ignore", "ignore"],
+			env: { ...process.env, AXIOM_PID_SENTINEL: marker },
+		});
+		const exited = once(child, "exit");
+		// Attached before the VM starts: the spawn event fires during the 2 s boot, so
+		// awaiting it later would hang forever.
+		const spawned = once(child, "spawn");
+		// Await the real death event, not a guessed sleep: if a guest signal crossed the
+		// boundary, the exit event resolves before the guest exec round-trip returns.
+		const died = exited.then(() => "died");
+		try {
+			expect((await session.ready).kind).toBe("enforced"); // A broken VM must fail here, not pass vacuously.
+			await spawned;
+			const pid = child.pid!;
+			expect(readFileSync(`/proc/${pid}/cmdline`, "utf8")).toContain(marker);
+			// The guest has its own procfs: a guest process could reuse the PID number, so exit codes
+			// here prove nothing. What isolation guarantees is that host content — the argv marker and
+			// the AXIOM_PID_SENTINEL environment — is not readable at that path.
+			const listed = await sh(`ls /proc/${pid}`);
+			expect(listed.text, "guest /proc listing").not.toContain(marker);
+			const environ = await sh(`cat /proc/${pid}/environ`);
+			expect(environ.text, "guest environ read").not.toContain(marker);
+			// Signalling the host PID (and the guest broadcast, attempted last) must leave the host
+			// child alive. Broadcast goes last: it can take down the guest's own exec service.
+			for (const command of [`kill -9 ${pid}`, `kill ${pid}`, "kill -9 -1"]) {
+				const outcome = await Promise.race([sh(command).then(() => "exec"), died]);
+				expect(outcome, command).toBe("exec");
+				process.kill(pid, 0); // Throws if the host process died.
+			}
+			// The guest still answers after the broadcast attempt, so the loop ran to completion.
+			expect(await sh("echo alive")).toEqual({ exitCode: 0, text: "alive\n" });
+		} finally {
+			child.kill("SIGKILL");
+			await exited;
+			await session.close();
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});
