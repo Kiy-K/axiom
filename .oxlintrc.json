@@ -1,3 +1,16 @@
 {
-  "extends": ["./node_modules/@interfere/landmines/configs/recommended.json"]
+  "extends": ["./node_modules/@interfere/landmines/configs/recommended.json"],
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", ".artifacts/**", "docs/**", "**/assets/**"],
+  "rules": {
+    "landmines-style/no-comments": "warn",
+    "landmines-types/no-explicit-return-types": "warn",
+    "landmines-structure/colocated-tests": "warn",
+    "landmines-testing/no-test-doubles": "warn",
+    "landmines-testing/no-flake-masking": "warn",
+    "landmines-testing/no-fixed-sleep": "warn",
+    "landmines-testing/no-unsignaled-poll": "warn"
+  },
+  "overrides": [
+    { "files": ["**/*-fixture.ts"], "rules": { "landmines-structure/test-file-names": "off" } }
+  ]
 }
