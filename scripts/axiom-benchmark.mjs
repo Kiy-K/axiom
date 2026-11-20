@@ -458,11 +458,25 @@ function headRef() {
 }
 
 // Which bundles the run actually used, by digest: a recorded run is only comparable to a rerun of the
-// same code, and `git rev-parse HEAD` does not cover the pinned pi bundle or a dirty worktree.
+// same code, and `git rev-parse HEAD` does not cover the pinned pi bundle or a dirty worktree. The
+// digest covers every file in the bundle directory: cli.js alone is a loader stub identical between
+// builds, so hashing it would make the guard blind to real code changes.
 function bundleDigests() {
 	const out = {};
-	for (const [name, path] of Object.entries(BUNDLES)) {
-		out[name] = existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : null;
+	const hashTree = (hash, dir, prefix) => {
+		for (const file of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+			if (file.isDirectory()) hashTree(hash, join(dir, file.name), `${prefix}${file.name}/`);
+			else hash.update(prefix + file.name).update("\0").update(readFileSync(join(dir, file.name))).update("\0");
+		}
+	};
+	for (const [name, entry] of Object.entries(BUNDLES)) {
+		if (!existsSync(entry)) {
+			out[name] = null;
+			continue;
+		}
+		const hash = createHash("sha256");
+		hashTree(hash, dirname(entry), "");
+		out[name] = hash.digest("hex");
 	}
 	return out;
 }
@@ -520,6 +534,7 @@ async function run(options) {
 	}
 	mkdirSync(options.artifacts, { recursive: true });
 	if (options.fresh) rmSync(options.out, { force: true });
+	mkdirSync(dirname(resolve(options.out)), { recursive: true });
 	const header = { type: "header", at: new Date().toISOString(), arms, repeats: options.repeats, seed: options.seed, budget: options.budget, provider: PROVIDER, model: MODEL, git: headRef(), bundles, hardware: hardwareBlock() };
 	appendFileSync(options.out, `${JSON.stringify(header)}\n`);
 	process.stdout.write(`plan: ${steps.length} trials (${selected.length} tasks, ${arms.join("/")}, ${options.repeats} repeats, seed ${options.seed})${done.size ? `, resuming: ${done.size} recorded` : ""}\n`);
