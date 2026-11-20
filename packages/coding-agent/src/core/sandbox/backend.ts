@@ -32,6 +32,7 @@ export interface SandboxBackend {
 }
 
 /** Why a command ran, or could not run, without isolation. The label "sandboxed" is only valid for `enforced`. */
+// @lat: [[decisions#Sandboxed execution]]
 export type SandboxState =
 	| { kind: "unavailable"; reason: string }
 	| { kind: "starting" }

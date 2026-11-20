@@ -648,6 +648,7 @@ export function getShareViewerUrl(gistId: string): string {
 // =============================================================================
 
 /** Get the agent config directory (e.g., ~/.pi/agent/) */
+// @lat: [[architecture#Config and branding]]
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {

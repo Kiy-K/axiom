@@ -141,6 +141,7 @@ function validateEditInput(input: EditToolInput): { path: string; edits: Edit[] 
 	return { path: input.path, edits: input.edits };
 }
 
+// @lat: [[architecture#Read and edit contracts]]
 export function createEditToolDefinition(
 	cwd: string,
 	options?: EditToolOptions,

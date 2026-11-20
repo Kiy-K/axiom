@@ -209,6 +209,7 @@ interface PlannedChange {
  * `shown(line)` reports whether the model was shown that 1-based line under `tag`. Throws on the first
  * problem; the input lines are never modified.
  */
+// @lat: [[decisions#Hashline edit mode]]
 export function applyHashlineEdits(
 	lines: readonly HashlineLine[],
 	tag: string,

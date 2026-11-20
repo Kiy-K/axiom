@@ -44,6 +44,7 @@ export const DEFAULT_AGENT_IDENTITY: ClientIdentity = { attribution: PI_ATTRIBUT
  * Start an agent loop with a new prompt message.
  * The prompt is added to the context and events are emitted for it.
  */
+// @lat: [[architecture#Agent loop and tool execution]]
 export function agentLoop(
 	prompts: AgentMessage[],
 	context: AgentContext,

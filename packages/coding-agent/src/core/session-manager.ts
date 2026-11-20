@@ -38,6 +38,7 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+// @lat: [[architecture#Session storage]]
 export const CURRENT_SESSION_VERSION = 3;
 
 export interface SessionHeader {

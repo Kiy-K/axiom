@@ -125,6 +125,7 @@ function buildRules(
 }
 
 /** Build the ordered, independently replaceable sections of the structured system prompt. */
+// @lat: [[architecture#Prompts and tool schemas]]
 export function buildSystemPromptSections(input: BuildSystemPromptOptions): SystemPromptSections {
 	const options = normalizeBuildSystemPromptOptions(input);
 	const {

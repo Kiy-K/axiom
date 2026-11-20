@@ -114,6 +114,7 @@ export function modeRank(mode: PermissionMode): number {
 	return PERMISSION_MODES_STRICTEST_FIRST.indexOf(mode);
 }
 
+// @lat: [[decisions#Central permission gateway]]
 export class PermissionGateway {
 	readonly grants = new GrantStore();
 	readonly audit: AuditLog;

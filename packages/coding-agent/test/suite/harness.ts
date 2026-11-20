@@ -149,6 +149,7 @@ function createTempDir(): string {
 	return tempDir;
 }
 
+// @lat: [[architecture#Tests and platforms]]
 export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
 	const tempDir = createTempDir();
 	const fauxProvider: FauxProviderRegistration = registerFauxProvider({

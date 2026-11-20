@@ -71,6 +71,7 @@ function reachesOutside(action: Action): boolean {
  * the workspace are not a source: the user chose to trust the workspace, and a hostile file there is the residual
  * risk this gate cannot see (see docs/axiom/p6-auto-mode-contract.md).
  */
+// @lat: [[domain#Security and trust vocabulary]]
 export function untrustedSource(
 	toolName: string,
 	input: Record<string, unknown>,

@@ -873,6 +873,7 @@ function discoverExtensionsInDir(dir: string): string[] {
 /**
  * Discover and load extensions from standard locations.
  */
+// @lat: [[architecture#Extension lifecycle]]
 export async function discoverAndLoadExtensions(
 	configuredPaths: string[],
 	cwd: string,

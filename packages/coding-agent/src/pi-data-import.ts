@@ -155,6 +155,7 @@ const MAX_REPORTED_SKIPS = 20;
 type WalkState = { root: string; target: string; files: number; skipped: PiDataImportSkip[]; droppedOAuth: string[] };
 
 /** Copy Pi agent dir `source` (already realpath'd) to absent `target` via a temp dir and one rename; never writes under `source`. */
+// @lat: [[decisions#Rebrand without breaking Pi compatibility]]
 export function importPiAgentDir(source: string, target: string): PiDataImportResult {
 	let temp: string | undefined;
 	try {
